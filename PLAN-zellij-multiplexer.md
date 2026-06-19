@@ -140,7 +140,7 @@ The exact names can change during implementation, but the abstraction should cov
 
 **Input fidelity across the boundary.** `send-text` must deliver its payload byte-for-byte to the underlying backend, with no shell re-expansion of the text. Today `fm-send.sh` runs `tmux send-keys -t "$T" -l "$*"` in one process; introducing `fm-mux.sh send-text` adds an exec boundary where a brief or message containing spaces, quotes, `$`, or backslashes can be mangled. Pass the text as a single argument (`"$*"` captured once and forwarded as one positional), never re-split or `eval` it, and add a test that round-trips a payload containing `' " $ \ space` through `send-text` into a scratch pane and reads it back unchanged.
 
-**`list` enumeration must be explicit about scope.** For tmux, `list` enumerates `:fm-` windows across all sessions (`tmux list-windows -a`). For zellij, listing has no global "all tabs everywhere" primitive — tabs are per-session — so `list` must decide which session(s) to scan. Define it concretely: scan the current zellij session if firstmate is inside one, plus the `firstmate` session if it exists, and enumerate `fm-` tabs within those via `list-tabs --json`. `list all` (used by the watcher and recovery) unions the tmux result and the zellij result so mixed-backend fleets are fully enumerated; document that any zellij task tab living in a session outside that set is intentionally out of scope.
+**`list` enumeration must be explicit about scope.** For tmux, `list` enumerates `:fm-` windows across all sessions (`tmux list-windows -a`). For zellij, listing has no global "all tabs everywhere" primitive — tabs are per-session — so `list` must decide which session(s) to scan. Define it concretely: scan the current zellij session if firstmate is inside one, plus the `firstmate` session if it exists, and enumerate `fm-` tabs within those via `list-tabs --json`. `list all` (used by recovery and metadata-free resolution; the watcher stale scan now uses `state/*.meta` `target=` values) unions the tmux result and the zellij result so mixed-backend fleets are fully enumerated; document that any zellij task tab living in a session outside that set is intentionally out of scope.
 
 The helper should return structured target strings that include the backend, for example:
 
@@ -356,9 +356,9 @@ Acceptance criteria:
 
 Tasks:
 
-- [ ] Replace `tmux list-windows -a ... | grep ':fm-'` with `fm-mux.sh list all`, which unions tmux `:fm-` windows and zellij `fm-` tabs in the scanned sessions (scope defined in task 1). Each entry must carry its backend so the loop captures from the right surface.
-- [ ] Replace direct `tmux capture-pane` calls with `fm-mux.sh capture`.
-- [ ] Use the full backend-aware target string as the key for `.hash-*`, `.count-*`, and `.stale-*`. The existing `tr ':/.' '___'` keying already normalizes a `zellij:session:tab:pane` target into a safe filename with no change — confirm, don't redesign.
+- [x] Replace `tmux list-windows -a ... | grep ':fm-'` with metadata-backed target enumeration: scan `state/*.meta`, read each task's authoritative `target=` value, and capture that target through `fm-mux.sh capture`. Do not use `fm-mux.sh list all` as the watcher stale-scan source; its zellij fallback can only infer pane ids when metadata is unavailable.
+- [x] Replace direct `tmux capture-pane` calls with `fm-mux.sh capture`.
+- [x] Use the full backend-aware target string as the key for `.hash-*`, `.count-*`, and `.stale-*`. The existing `tr ':/.' '___'` keying already normalizes a `zellij:session:tab:pane` target into a safe filename with no change.
 - [ ] Keep the signal scan, check scripts, heartbeat cadence, and busy regex unchanged.
 - [ ] Keep the busy-signature match on the last 6 non-blank lines: zellij `dump-screen` returns clean pane content (no zellij chrome), so the footer-region heuristic still locates the harness busy indicator. Verify this against a real harness pane in the spike rather than assuming.
 - [ ] Update comments from “pane” and “tmux” where they refer to the backend generally.

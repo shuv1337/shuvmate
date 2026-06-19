@@ -406,6 +406,7 @@ Due per-task checks run before signal scanning so chatty crewmate status updates
 
 Never rely on hooks or status files alone; the heartbeat review of every window is mandatory and unconditional.
 The configured multiplexer plus state files are the ground truth.
+For stale-pane detection, `fm-watch.sh` scans `state/*.meta` and captures each task's authoritative `target=` pane; it does not derive live targets from multiplexer listing heuristics.
 
 **Watcher liveness is guarded, not just disciplined.**
 Restarting the watcher is the last action of every wake-handling turn - but the protocol no longer relies on remembering that.

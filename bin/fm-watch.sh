@@ -30,6 +30,13 @@ hash_pane() {
   if command -v md5 >/dev/null 2>&1; then md5 -q; else md5sum | cut -d' ' -f1; fi
 }
 
+# Authoritative pane target for a task, read from its meta's target= line
+# (recorded by fm-spawn at create time via a robust before/after pane diff).
+# This is the source the staleness scan trusts: see the Layer 1 loop below.
+meta_target() {
+  grep '^target=' "$1" 2>/dev/null | head -1 | cut -d= -f2- || true
+}
+
 # Exit reporting a wake. Consecutive heartbeats with no other wake in between
 # mean an idle fleet, so the heartbeat interval backs off exponentially
 # (base * 2^streak, capped at HEARTBEAT_MAX); any real wake resets the cadence.
@@ -132,7 +139,19 @@ EOF
   # Layer 1 backbone: pane staleness. Two consecutive identical hashes with no busy
   # signature means the crewmate finished, is waiting, or is wedged. Each distinct
   # stale state is reported once (.stale-* remembers the hash already reported).
-  while IFS= read -r w; do
+  #
+  # Targets come from each task's state/<id>.meta target= line, NOT from
+  # "$MUX" list all. The meta target is authoritative - fm-spawn captures the
+  # real pane id by diffing list-panes before/after the new tab - whereas the
+  # list-all path re-derives zellij targets through a heuristic (pane ==
+  # terminal_<tab_id>) that silently drops a tab once pane ids outrun tab ids,
+  # so live crews were skipped and a wedged one never reported stale. capture
+  # returns non-zero for a torn-down/dead target, so the same || continue still
+  # skips those; tmux meta targets (tmux:ses:name) resolve directly too.
+  for meta in "$STATE"/*.meta; do
+    [ -e "$meta" ] || continue
+    w=$(meta_target "$meta")
+    [ -n "$w" ] || continue
     tail40=$("$MUX" capture "$w" 40 2>/dev/null) || continue
     h=$(printf '%s' "$tail40" | hash_pane)
     key=$(printf '%s' "$w" | tr ':/.' '___')
@@ -156,7 +175,7 @@ EOF
       printf '%s' "$h" > "$hf"
       echo 0 > "$cf"
     fi
-  done < <("$MUX" list all 2>/dev/null || true)
+  done
 
   # Heartbeat: firstmate reviews the whole fleet at a regular cadence no matter
   # what. Time-based via .last-heartbeat mtime; interval doubles per consecutive
