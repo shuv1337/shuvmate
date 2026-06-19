@@ -28,13 +28,13 @@ You can run one coding agent easily.
 But the moment you want three project tasks done in parallel - fixes, investigations, plans, audits - you become a tab-juggler: babysitting sessions, copy-pasting context between repos, forgetting which terminal had the failing test.
 
 firstmate flips the model.
-You talk to a single agent - the first mate - and it runs the crew for you: spawning autonomous agents in tmux windows, giving each a clean git worktree, supervising them to completion, and handing you finished PRs, approved local merges, or standalone investigation reports.
+You talk to a single agent - the first mate - and it runs the crew for you: spawning autonomous agents in tmux windows or zellij tabs, giving each a clean git worktree, supervising them to completion, and handing you finished PRs, approved local merges, or standalone investigation reports.
 There is no app to install; the whole orchestrator is an `AGENTS.md` file that any terminal coding agent can follow.
 
 - **One liaison** - you never talk to a worker agent.
   The first mate dispatches, supervises, escalates only real decisions, and reports plain outcomes about work that is ready, blocked, or needs your call.
-- **A visible crew** - every crewmate lives in a tmux window.
-  Watch any of them work, or type into their window to intervene; the first mate reconciles.
+- **A visible crew** - every crewmate lives in a tmux window or zellij tab.
+  Watch any of them work, or type into their surface to intervene; the first mate reconciles.
 - **Guarded by construction** - the first mate is read-only over your projects except for clean local default-branch refreshes, safe pruning of local branches whose remote is gone, and approved `local-only` fast-forward merges; crewmates work in disposable [treehouse](https://github.com/kunchenguid/treehouse) worktrees.
   Ship tasks follow each project's delivery mode, and scout tasks produce local reports without pushing anything.
 
@@ -51,7 +51,7 @@ $ claude   # launch your agent harness here; AGENTS.md takes over
 > ahoy! look at my github project xyz, then fix the flaky login test and add dark mode
 
 # firstmate checks its toolchain (asking your consent before installing anything),
-# clones the project under projects/, and spawns two crewmates in tmux windows
+# clones the project under projects/, and spawns two crewmates in multiplexer task surfaces
 # fm-fix-login-k3 and fm-dark-mode-p7.
 # Minutes later:
 
@@ -68,7 +68,7 @@ $ claude   # launch your agent harness here; AGENTS.md takes over
 ```sh
 # 1. a verified agent harness - claude, codex, opencode, or pi
 # 2. git + GitHub auth
-# 3. tmux - the crew lives in tmux windows (firstmate offers to install it if missing)
+# 3. tmux by default, or zellij when configured (firstmate offers to install the chosen multiplexer if missing)
 gh auth login
 ```
 
@@ -80,10 +80,10 @@ cd firstmate && claude
 ```
 
 That is the whole install.
-On first launch the first mate detects what its toolchain is missing (tmux, treehouse, no-mistakes, gh-axi, chrome-devtools-axi, lavish-axi), lists it with the exact install commands, and installs only after you say go.
+On first launch the first mate detects what its toolchain is missing (tmux or zellij, treehouse, no-mistakes, gh-axi, chrome-devtools-axi, lavish-axi), lists it with the exact install commands, and installs only after you say go.
 
-**Run it inside tmux for the best experience.**
-firstmate works from any terminal - outside tmux, crewmates land in a detached `firstmate` session you can attach to - but launching your harness from inside tmux puts every crewmate window in your own session, one per task, where you can watch the crew work in real time or type into any window to intervene.
+**Run it inside tmux or zellij for the best experience.**
+firstmate works from any terminal - outside a multiplexer, crewmates land in a detached `firstmate` session you can attach to - but launching your harness from inside tmux or zellij puts every crewmate in your own session, one per task, where you can watch the crew work in real time or type into any surface to intervene.
 
 ## How It Works
 
@@ -96,10 +96,10 @@ firstmate works from any terminal - outside tmux, crewmates land in a detached `
  │ reads projects/; writes guarded     │
  │ backlog.md ── briefs ── watcher     │
  └──┬──────────────┬───────────────┬───┘
-    │ tmux send-keys / status files │
+    │ multiplexer send / status files │
     ▼              ▼               ▼
  ┌────────┐   ┌────────┐      ┌────────┐
- │fm-task1│   │fm-task2│  ... │fm-taskN│   tmux windows you can watch
+ │fm-task1│   │fm-task2│  ... │fm-taskN│   task surfaces you can watch
  │crewmate│   │crewmate│      │crewmate│   one autonomous agent each
  └───┬────┘   └───┬────┘      └───┬────┘
      ▼            ▼               ▼
@@ -120,7 +120,7 @@ firstmate works from any terminal - outside tmux, crewmates land in a detached `
 - **Project memory belongs to projects** - durable project-intrinsic agent knowledge lives in each project's committed `AGENTS.md`, with `CLAUDE.md` as a symlink.
   Ship briefs prompt crewmates to create or update those files through the normal delivery path; `data/projects.md` stays a thin private registry.
 - **Local clones stay fresh** - bootstrap and PR-based teardown refresh remote-backed project clones with clean default-branch fast-forwards when the clone is on the default branch and has no local work, and prune local branches whose remote is gone and that no worktree still needs.
-- **Restart-proof** - all state lives in tmux, status files, and local markdown under `data/`.
+- **Restart-proof** - all state lives in the multiplexer, status files, and local markdown under `data/`.
   Kill the first mate session anytime; the next one reconciles and carries on.
 
 ## The bin/ toolbelt
@@ -134,16 +134,17 @@ The first mate drives these; you rarely need to, but they work by hand too.
 | `fm-brief.sh`            | Scaffold a ship brief, or a report-only scout brief with `--scout`                                                  |
 | `fm-ensure-agents-md.sh` | Ensure project `AGENTS.md` is the real memory file and `CLAUDE.md` symlinks to it                                   |
 | `fm-guard.sh`            | Warn when tasks are in flight but the watcher liveness beacon is stale or missing                                   |
-| `fm-spawn.sh`            | Window → treehouse worktree → agent launched with its brief; records ship/scout task kind                           |
+| `fm-mux.sh`              | Multiplexer backend helper (tmux/zellij): create, list, send, capture, kill task surfaces                           |
+| `fm-spawn.sh`            | Task surface → treehouse worktree → agent launched with its brief; records ship/scout task kind                     |
 | `fm-project-mode.sh`     | Resolve a project's delivery mode and `+yolo` flag from `data/projects.md`                                          |
 | `fm-merge-local.sh`      | Fast-forward a `local-only` project's local default branch after approval                                           |
 | `fm-review-diff.sh`      | Review a crewmate branch against the authoritative base, with optional `--stat` output                              |
 | `fm-watch.sh`            | Block until supervision work is due; exits with one reason line                                                     |
-| `fm-send.sh`             | Send one literal line (or `--key Escape`) to a crewmate window                                                      |
+| `fm-send.sh`             | Send one literal line (or `--key Escape`) to a crewmate task surface                                                  |
 | `fm-peek.sh`             | Print a bounded tail of a crewmate pane                                                                             |
 | `fm-pr-check.sh`         | Record a PR-ready task and arm the watcher's merge poll                                                             |
 | `fm-promote.sh`          | Promote a scout task in place so it becomes a protected ship task                                                   |
-| `fm-teardown.sh`         | Return the worktree and kill the window; protects ship work and requires scout reports                              |
+| `fm-teardown.sh`         | Return the worktree and kill the task surface; protects ship work and requires scout reports                          |
 | `fm-harness.sh`          | Detect the running harness; resolve the effective crewmate harness                                                  |
 | `fm-lock.sh`             | Single-firstmate session lock                                                                                       |
 
@@ -152,6 +153,15 @@ The first mate drives these; you rarely need to, but they work by hand too.
 The shared orchestrator behavior lives in `AGENTS.md` - edit it like any prompt when the fleet is empty, or dispatch shared-repo edits to a crewmate while tasks are in flight.
 Personal preferences for one captain's fleet live locally in `data/captain.md`; it is gitignored and read after `data/projects.md` during bootstrap.
 Harness support is a table in section 4: claude, codex, opencode, and pi are all empirically verified; new harnesses get verified through a supervised trial task before joining the table.
+
+To use zellij instead of tmux for new crewmate sessions:
+
+```sh
+mkdir -p config
+printf 'zellij\n' > config/multiplexer
+```
+
+Absent or `default` keeps tmux. Existing in-flight tasks keep the backend recorded in their `state/<id>.meta` (`mux=` and `target=`).
 
 Runtime tuning via environment variables (defaults shown):
 
@@ -180,5 +190,8 @@ bash -n bin/*.sh                          # syntax-check the toolbelt
 shellcheck bin/*.sh                       # lint the toolbelt; CI enforces this
 [ "$(readlink CLAUDE.md)" = "AGENTS.md" ]
 [ "$(readlink .claude/skills)" = "../.agents/skills" ]
+bin/fm-mux.sh configured                  # multiplexer helper smoke (no session required)
 FM_HEARTBEAT=2 FM_POLL=1 bin/fm-watch.sh  # watcher smoke test (prints "heartbeat")
+# zellij smoke (optional, requires zellij):
+# mkdir -p config && printf 'zellij\n' > config/multiplexer && bin/fm-bootstrap.sh
 ```
