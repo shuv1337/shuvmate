@@ -412,11 +412,15 @@ cmd_capture() {
   case "$target" in
     tmux:*)
       win=$(tmux_target_window "$target")
-      tmux capture-pane -p -t "$win" -S -"$lines" 2>/dev/null || true
+      # tmux reports dead targets via capture-pane's exit status.
+      tmux capture-pane -p -t "$win" -S -"$lines" 2>/dev/null
       ;;
     zellij:*)
       zellij_parse_target "$target"
-      out=$(zellij --session "$ZMUX_SES" action dump-screen -p "$ZMUX_PANE" 2>/dev/null || true)
+      # zellij dump-screen exits 0 with empty output for dead pane ids, so
+      # validate liveness through the authoritative pane list first.
+      zellij_list_pane_ids "$ZMUX_SES" | grep -qxF "$ZMUX_PANE" || return 1
+      out=$(zellij --session "$ZMUX_SES" action dump-screen -p "$ZMUX_PANE" 2>/dev/null) || return 1
       printf '%s\n' "$out" | tail -n "$lines"
       ;;
     *) die "invalid target for capture: $target" ;;
