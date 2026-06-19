@@ -64,8 +64,15 @@ current_mux() {
   fi
 }
 
+# Names of live (non-exited) zellij sessions, one per line. list-sessions marks
+# dead sessions with "(EXITED ...)"; we never want to drive those, so filter
+# them out and keep the first field (the session name).
+zellij_live_sessions() {
+  zellij list-sessions --no-formatting 2>/dev/null | grep -v 'EXITED' | awk 'NF { print $1 }'
+}
+
 zellij_session_exists() {
-  zellij list-sessions --short --no-formatting 2>/dev/null | grep -qxF "$1"
+  zellij_live_sessions | grep -qxF "$1"
 }
 
 tmux_session_name() {
@@ -76,12 +83,31 @@ tmux_session_name() {
   fi
 }
 
+# Resolve the live zellij session this firstmate is driving. ZELLIJ_SESSION_NAME
+# is set by zellij at attach time but is NOT updated if the session is later
+# renamed, so trusting it blindly makes every command target a session that no
+# longer exists (empty fleet list; "attach to the current session" panic on
+# spawn). Trust it only while it still names a live session; otherwise, if there
+# is exactly one live session, that is the one we are in. Fall back to the
+# default only when the situation is genuinely ambiguous.
 zellij_session_name() {
-  if [ -n "${ZELLIJ:-}" ]; then
-    printf '%s' "${ZELLIJ_SESSION_NAME:-$DEFAULT_SESSION}"
-  else
+  if [ -z "${ZELLIJ:-}" ]; then
     printf '%s' "$DEFAULT_SESSION"
+    return
   fi
+  local want="${ZELLIJ_SESSION_NAME:-}"
+  if [ -n "$want" ] && zellij_session_exists "$want"; then
+    printf '%s' "$want"
+    return
+  fi
+  local live count
+  live=$(zellij_live_sessions)
+  count=$(printf '%s\n' "$live" | grep -c .)
+  if [ "$count" -eq 1 ]; then
+    printf '%s' "$live"
+    return
+  fi
+  printf '%s' "${want:-$DEFAULT_SESSION}"
 }
 
 ensure_tmux_session() {
@@ -214,7 +240,7 @@ list_tmux_targets() {
 
 list_zellij_sessions_to_scan() {
   if [ -n "${ZELLIJ:-}" ]; then
-    printf '%s\n' "${ZELLIJ_SESSION_NAME:-$DEFAULT_SESSION}"
+    printf '%s\n' "$(zellij_session_name)"
   fi
   if zellij_session_exists "$DEFAULT_SESSION"; then
     printf '%s\n' "$DEFAULT_SESSION"
