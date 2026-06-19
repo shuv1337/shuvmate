@@ -47,7 +47,8 @@ wake() {
 # a busy fleet. Persist the schedule as file mtimes instead.
 age_of() {  # seconds since file mtime; "due immediately" if missing
   local f=$1 m
-  m=$(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null) || { echo 999999; return; }
+  m=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null) || { echo 999999; return; }
+  case "$m" in ''|*[!0-9]*) echo 999999; return ;; esac
   echo $(( $(date +%s) - m ))
 }
 
@@ -64,7 +65,7 @@ scan_signals() {
   local f sig sf
   for f in "$STATE"/*.status "$STATE"/*.turn-ended; do
     [ -e "$f" ] || continue
-    sig=$(stat -f '%z:%Fm' "$f" 2>/dev/null || stat -c '%s:%Y' "$f" 2>/dev/null) || continue
+    sig=$(stat -c '%s:%Y' "$f" 2>/dev/null || stat -f '%z:%Fm' "$f" 2>/dev/null) || continue
     sf="$STATE/.seen-$(basename "$f" | tr '.' '_')"
     if [ "$sig" != "$(cat "$sf" 2>/dev/null)" ]; then
       printf '%s\t%s\t%s\n' "$sf" "$sig" "$f"
