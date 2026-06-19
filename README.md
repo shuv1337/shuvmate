@@ -111,6 +111,7 @@ firstmate works from any terminal - outside a multiplexer, crewmates land in a d
 ```
 
 - **Event-driven supervision** - a zero-token bash watcher (`bin/fm-watch.sh`) sleeps on the fleet and wakes the first mate only when a crewmate reports, stalls, a PR merges, or an internal heartbeat review is due.
+  Stale-pane detection follows each task's recorded `state/<id>.meta` `target=` so tmux windows and zellij tabs are checked by their authoritative pane target.
   Routine watcher polling, restarts, elapsed waiting time, and unchanged heartbeat reviews stay silent; an idle crew costs you nothing.
   A pull-based guard (`bin/fm-guard.sh`) warns through supervision tool output if tasks are in flight and that watcher stops running.
 - **Worktrees, not branches in your checkout** - crewmates never touch your clone; treehouse pools clean worktrees so parallel tasks on one repo cannot collide.
