@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Spawn a crewmate: tmux window -> treehouse worktree subshell -> agent launched with its brief.
+# Spawn a crewmate: multiplexer tab/window -> treehouse worktree subshell -> agent launched with its brief.
 # Usage: fm-spawn.sh <task-id> <project-dir> [harness|launch-command] [--scout]
 #   With no harness arg, the harness comes from fm-harness.sh crew (config/crew-harness,
 #   falling back to firstmate's own harness). A bare adapter name (claude|codex|
@@ -19,6 +19,7 @@
 set -eu
 
 FM_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MUX="$FM_ROOT/bin/fm-mux.sh"
 "$FM_ROOT/bin/fm-guard.sh" || true
 KIND=ship
 POS=()
@@ -35,7 +36,7 @@ ARG3=${POS[2]:-}
 # The verified launch command per adapter. The knowledge half of each adapter
 # (busy signature, exit command, dialogs, quirks) lives in AGENTS.md section 4.
 launch_template() {
-  # shellcheck disable=SC2016  # single quotes are deliberate: $(cat ...) expands in the crewmate pane, not here
+  # shellcheck disable=SC2016  # single quotes are deliberate: $(cat ...) expands in the crewmate pane, not just here
   case "$1" in
     claude) printf '%s' 'claude --dangerously-skip-permissions "$(cat __BRIEF__)"' ;;
     codex) printf '%s' 'codex --dangerously-bypass-approvals-and-sandbox -c "notify=[\"bash\",\"-c\",\"touch __TURNEND__\"]" "$(cat __BRIEF__)"' ;;
@@ -67,36 +68,57 @@ BRIEF="$FM_ROOT/data/$ID/brief.md"
 [ -f "$BRIEF" ] || { echo "error: no brief at $BRIEF" >&2; exit 1; }
 PROJ_ABS="$(cd "$PROJ" && pwd)"
 
-# Same session when firstmate already runs inside tmux; dedicated session otherwise.
-if [ -n "${TMUX:-}" ]; then
-  SES=$(tmux display-message -p '#S')
-else
-  tmux has-session -t firstmate 2>/dev/null || tmux new-session -d -s firstmate
-  SES=firstmate
-fi
+MUX_NAME=$("$MUX" configured)
+case "$MUX_NAME" in
+  zellij)
+    if [ -z "${ZELLIJ:-}" ] && ! command -v zellij >/dev/null; then
+      echo "error: zellij selected in config/multiplexer but zellij is not installed" >&2
+      exit 1
+    fi
+    ;;
+  tmux)
+    command -v tmux >/dev/null || { echo "error: tmux is not installed" >&2; exit 1; }
+    ;;
+esac
 
+"$MUX" ensure-session "$MUX_NAME"
+TARGET=$("$MUX" create "$MUX_NAME" "$ID" "$PROJ_ABS")
 W="fm-$ID"
-T="$SES:$W"
-if tmux list-windows -t "$SES" -F '#{window_name}' | grep -qx "$W"; then
-  echo "error: window $T already exists" >&2
-  exit 1
-fi
+case "$TARGET" in
+  tmux:*) T="${TARGET#tmux:}" ;;
+  zellij:*) T="${TARGET#zellij:}"; T="${T%%:*}:$W" ;;
+  *) echo "error: unexpected target from fm-mux create: $TARGET" >&2; exit 1 ;;
+esac
 
-tmux new-window -d -t "$SES" -n "$W" -c "$PROJ_ABS"
-tmux send-keys -t "$T" 'treehouse get' Enter
+# Portable worktree-readiness probe (replaces tmux pane_current_path polling).
+# treehouse get opens an interactive subshell in the worktree; we ask that shell
+# to write its cwd to a ready-file. The first probe can land before the subshell
+# is up (consumed by the outer shell, writing the project dir, which the != guard
+# below rejects), so re-send a few times early until a worktree path appears.
+READY="$FM_ROOT/state/$ID.worktree-ready"
+rm -f "$READY"
+"$MUX" send-text "$TARGET" 'treehouse get'
+"$MUX" send-key "$TARGET" Enter
 
-# Wait for the treehouse subshell: the pane's cwd moves from the project to the worktree.
 WT=""
+sent=0
 for _ in $(seq 1 60); do
-  p=$(tmux display-message -p -t "$T" '#{pane_current_path}' 2>/dev/null || true)
-  if [ -n "$p" ] && [ "$p" != "$PROJ_ABS" ]; then
-    WT="$p"
-    break
+  if [ -f "$READY" ]; then
+    WT=$(tr -d '[:space:]' < "$READY" || true)
+    if [ -n "$WT" ] && [ "$WT" != "$PROJ_ABS" ]; then
+      break
+    fi
+    WT=""
+  fi
+  if [ "$sent" -lt 5 ]; then
+    "$MUX" send-text "$TARGET" "pwd > '$READY'"
+    "$MUX" send-key "$TARGET" Enter
+    sent=$((sent + 1))
   fi
   sleep 1
 done
 if [ -z "$WT" ]; then
-  echo "error: treehouse get did not enter a worktree within 60s; inspect window $T" >&2
+  echo "error: treehouse get did not enter a worktree within 60s; inspect surface $T" >&2
   exit 1
 fi
 
@@ -161,6 +183,8 @@ EOF
 
 mkdir -p "$FM_ROOT/state"
 {
+  echo "mux=$MUX_NAME"
+  echo "target=$TARGET"
   echo "window=$T"
   echo "worktree=$WT"
   echo "project=$PROJ_ABS"
@@ -173,8 +197,8 @@ mkdir -p "$FM_ROOT/state"
 LAUNCH=${LAUNCH//__BRIEF__/$BRIEF}
 LAUNCH=${LAUNCH//__TURNEND__/$TURNEND}
 LAUNCH=${LAUNCH//__PIEXT__/$FM_ROOT/state/$ID.pi-ext.ts}
-tmux send-keys -t "$T" -l "$LAUNCH"
+"$MUX" send-text "$TARGET" "$LAUNCH"
 sleep 0.3
-tmux send-keys -t "$T" Enter
+"$MUX" send-key "$TARGET" Enter
 
 echo "spawned $ID harness=$HARNESS kind=$KIND mode=$MODE yolo=$YOLO window=$T worktree=$WT"

@@ -23,7 +23,8 @@ done
 
 BEAT="$STATE/.last-watcher-beat"
 if [ -e "$BEAT" ]; then
-  m=$(stat -f %m "$BEAT" 2>/dev/null || stat -c %Y "$BEAT" 2>/dev/null) || exit 0
+  m=$(stat -c %Y "$BEAT" 2>/dev/null || stat -f %m "$BEAT" 2>/dev/null) || exit 0
+  case "$m" in ''|*[!0-9]*) exit 0 ;; esac
   age=$(( $(date +%s) - m ))
   [ "$age" -lt "$GRACE" ] && exit 0
   echo "WARNING: tasks are in flight but no watcher has been alive for ${age}s (>${GRACE}s)." >&2

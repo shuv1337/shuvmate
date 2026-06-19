@@ -3,12 +3,14 @@
 # Usage: fm-bootstrap.sh
 #          Detect: prints one line per problem and exits 0. Silent = all good.
 #          Lines: "MISSING: <tool> (install: <command>)", "NEEDS_GH_AUTH",
-#                 "CREW_HARNESS_OVERRIDE: <name>", "FLEET_SYNC: <repo>: skipped: <reason>".
+#                 "CREW_HARNESS_OVERRIDE: <name>", "MULTIPLEXER_OVERRIDE: <name>",
+#                 "FLEET_SYNC: <repo>: skipped: <reason>".
 #          Fleet sync fetches, fast-forwards, and prunes gone local branches;
 #          it is bounded by FM_FLEET_SYNC_BOOTSTRAP_TIMEOUT, default 20s.
 #          Set FM_FLEET_PRUNE=0 to skip branch pruning during that refresh.
 #        fm-bootstrap.sh install <tool>...
 #          Install the named tools (only ones the captain approved).
+#        config/multiplexer selects tmux (default), zellij, or default.
 set -u
 
 FM_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -53,7 +55,7 @@ fleet_sync() {
 
 install_cmd() {
   case "$1" in
-    tmux|node|gh) echo "brew install $1  # or the platform's package manager" ;;
+    tmux|node|gh|zellij) echo "brew install $1  # or the platform's package manager" ;;
     treehouse) echo "curl -fsSL https://kunchenguid.github.io/treehouse/install.sh | sh" ;;
     no-mistakes) echo "curl -fsSL https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.sh | sh" ;;
     gh-axi|chrome-devtools-axi|lavish-axi) echo "npm install -g $1 && $1 setup hooks" ;;
@@ -61,7 +63,18 @@ install_cmd() {
   esac
 }
 
-TOOLS="tmux node gh treehouse no-mistakes gh-axi chrome-devtools-axi lavish-axi"
+required_mux() {
+  local mux=default
+  if [ -f "$FM_ROOT/config/multiplexer" ]; then
+    mux=$(tr -d '[:space:]' < "$FM_ROOT/config/multiplexer" || true)
+    [ -n "$mux" ] || mux=default
+  fi
+  case "$mux" in
+    default|'') printf 'tmux' ;;
+    tmux|zellij) printf '%s' "$mux" ;;
+    *) printf 'unknown:%s' "$mux" ;;
+  esac
+}
 
 if [ "${1:-}" = "install" ]; then
   shift
@@ -75,12 +88,24 @@ if [ "${1:-}" = "install" ]; then
   exit 0
 fi
 
-for t in $TOOLS; do
-  command -v "$t" >/dev/null || echo "MISSING: $t (install: $(install_cmd "$t"))"
-done
+MUX=$(required_mux)
+case "$MUX" in
+  unknown:*)
+    echo "MISSING: multiplexer config (unknown value in config/multiplexer: ${MUX#unknown:}; use tmux, zellij, or default)"
+    ;;
+  *)
+    TOOLS="$MUX node gh treehouse no-mistakes gh-axi chrome-devtools-axi lavish-axi"
+    for t in $TOOLS; do
+      command -v "$t" >/dev/null || echo "MISSING: $t (install: $(install_cmd "$t"))"
+    done
+    ;;
+esac
 gh auth status >/dev/null 2>&1 || echo "NEEDS_GH_AUTH"
 crew=
 [ -f "$FM_ROOT/config/crew-harness" ] && crew=$(tr -d '[:space:]' < "$FM_ROOT/config/crew-harness" || true)
 [ -n "$crew" ] && [ "$crew" != "default" ] && echo "CREW_HARNESS_OVERRIDE: $crew"
+mux_cfg=
+[ -f "$FM_ROOT/config/multiplexer" ] && mux_cfg=$(tr -d '[:space:]' < "$FM_ROOT/config/multiplexer" || true)
+[ -n "$mux_cfg" ] && [ "$mux_cfg" != "default" ] && echo "MULTIPLEXER_OVERRIDE: $mux_cfg"
 fleet_sync
 exit 0

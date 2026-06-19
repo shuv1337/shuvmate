@@ -59,6 +59,7 @@ README.md            public overview and development notes
 .claude/skills       symlink to .agents/skills for claude compatibility
 bin/                 helper scripts, committed, including fm-fleet-sync.sh for clean default-branch refreshes and gone-branch pruning; read each script's header before first use
 config/crew-harness  crewmate harness override; LOCAL, gitignored; absent or "default" = same as firstmate
+config/multiplexer   crewmate multiplexer override; LOCAL, gitignored; absent or "default" = tmux
 data/                personal fleet records; LOCAL, gitignored as a whole
   backlog.md         task queue, dependencies, history
   captain.md         captain's curated personal preferences and working style - approval posture, communication style, release habits; LOCAL, gitignored; compact rewrite-and-prune counterpart to shared AGENTS.md; canonical harness-portable home, even if harness memory mirrors it as a recall cache
@@ -69,7 +70,7 @@ projects/            cloned repos; gitignored; READ-ONLY for you
 state/               volatile runtime signals; gitignored
   <id>.status        appended by crewmates: "<state>: <note>" lines
   <id>.turn-ended    touched by turn-end hooks
-  <id>.meta          written by fm-spawn: window=, worktree=, project=, harness=, kind=, mode=, yolo= (fm-pr-check appends pr=)
+  <id>.meta          written by fm-spawn: mux=, target=, window=, worktree=, project=, harness=, kind=, mode=, yolo= (fm-pr-check appends pr=); missing mux= means legacy tmux
   <id>.check.sh      optional slow poll you write per task (e.g. merged-PR check)
   .hash-* .count-* .stale-* .seen-* .last-* .heartbeat-streak   watcher internals; never touch
   .last-watcher-beat watcher liveness beacon, touched every poll; fm-guard.sh reads it
@@ -77,7 +78,7 @@ state/               volatile runtime signals; gitignored
 ```
 
 Task ids are short kebab slugs with a random suffix, e.g. `fix-login-k3`.
-The tmux window for a task is always named `fm-<id>`.
+The task surface for a task is always named `fm-<id>` (tmux window or zellij tab).
 
 ## 3. Bootstrap (run at every session start)
 
@@ -107,6 +108,7 @@ Do not dispatch any work until the tools that work needs are present and GitHub 
 Use `gh-axi` for all GitHub operations, `chrome-devtools-axi` for all browser operations, and `lavish-axi` when a decision or report is complex enough to deserve a rich review surface.
 Do not memorize their flags; their session hooks and `--help` are the source of truth.
 If the captain names a different crewmate harness at bootstrap or later, write it to `config/crew-harness` (local, gitignored); that is the whole switch.
+If the captain prefers zellij over tmux, write `zellij` to `config/multiplexer` (local, gitignored); absent or `default` keeps tmux.
 
 ## 4. Harness adapters
 
@@ -183,10 +185,10 @@ Environment marker for harness detection: pi sets `PI_CODING_AGENT=true` for its
 You may have been restarted mid-flight.
 Reconcile reality with your records before doing anything else:
 
-1. `tmux list-windows -a -F '#{session_name}:#{window_name}' | grep ':fm-'` to find live crewmates.
+1. `bin/fm-mux.sh list all` to find live crewmates across tmux and zellij.
 2. Read `data/backlog.md`, every `state/*.meta`, and every `state/*.status`.
-3. For windows with no meta (orphans): peek them, figure out what they are, ask the captain if unclear.
-4. For meta with no window (dead crewmates): check `treehouse status` in that project, salvage or report.
+3. For task surfaces with no meta (orphans): peek them, figure out what they are, ask the captain if unclear.
+4. For meta with no live surface (dead crewmates): check `treehouse status` in that project, salvage or report.
 5. Run `bin/fm-lock.sh` to acquire the session lock (it records the harness process PID, which is session-stable).
    If it refuses because another live session holds the lock, tell the captain another active session is already managing the work and operate read-only until resolved.
 6. Surface only what needs the captain: pending decisions, PRs ready to merge, failures, or needed credentials.
@@ -194,7 +196,7 @@ Reconcile reality with your records before doing anything else:
 7. Restart the watcher (section 8).
 
 A firstmate restart must be a non-event.
-All truth lives in tmux, state files, data/backlog.md, and treehouse; your conversation memory is a cache.
+All truth lives in the configured multiplexer, state files, data/backlog.md, and treehouse; your conversation memory is a cache.
 
 ## 6. Project management
 
@@ -305,7 +307,7 @@ bin/fm-spawn.sh <id> projects/<repo> --scout     # scout task; records kind=scou
 
 The script resolves the harness (`fm-harness.sh crew`), owns the verified launch templates, resolves the project's delivery mode (`fm-project-mode.sh`), and records `harness=`, `kind=`, `mode=`, and `yolo=` in the task's meta; a non-flag third argument containing whitespace is treated as a raw launch command (only for verifying new adapters).
 
-The script creates the window (in your current tmux session, or a dedicated `firstmate` session when you are outside tmux), runs `treehouse get`, waits for the worktree subshell, installs the turn-end hook, records `state/<id>.meta`, and launches the agent with the brief.
+The script creates the task surface (in your current multiplexer session, or a dedicated `firstmate` session when you are outside one), runs `treehouse get`, waits for the worktree subshell, installs the turn-end hook, records `state/<id>.meta` with `mux=` and `target=`, and launches the agent with the brief.
 Worktrees start at detached HEAD on a clean default branch; ship briefs tell the crewmate to create its branch, while scout briefs keep the worktree scratch.
 After spawning, peek the pane to confirm the crewmate is processing the brief (and handle any trust dialog per section 4).
 Add the task to `data/backlog.md` under In flight.
@@ -403,7 +405,7 @@ Heartbeats back off exponentially while they are the only wakes firing (600s dou
 Due per-task checks run before signal scanning so chatty crewmate status updates cannot starve slow polls like merge detection.
 
 Never rely on hooks or status files alone; the heartbeat review of every window is mandatory and unconditional.
-tmux is the ground truth.
+The configured multiplexer plus state files are the ground truth.
 
 **Watcher liveness is guarded, not just disciplined.**
 Restarting the watcher is the last action of every wake-handling turn - but the protocol no longer relies on remembering that.

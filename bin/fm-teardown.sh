@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tear down a finished task: return the treehouse worktree, kill the tmux window,
+# Tear down a finished task: return the treehouse worktree, kill the task surface,
 # clear volatile state, then refresh/prune the project's clone for PR-based ship tasks.
 # REFUSES if the worktree holds work not on any remote, because treehouse return
 # hard-resets the worktree and kills its processes.
@@ -12,6 +12,7 @@
 set -eu
 
 FM_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MUX="$FM_ROOT/bin/fm-mux.sh"
 "$FM_ROOT/bin/fm-guard.sh" || true
 STATE="$FM_ROOT/state"
 ID=$1
@@ -21,6 +22,8 @@ META="$STATE/$ID.meta"
 [ -f "$META" ] || { echo "error: no meta for task $ID at $META" >&2; exit 1; }
 WT=$(grep '^worktree=' "$META" | cut -d= -f2-)
 T=$(grep '^window=' "$META" | cut -d= -f2-)
+TARGET=$(grep '^target=' "$META" | cut -d= -f2- || true)
+[ -n "$TARGET" ] || TARGET="tmux:$T"
 PROJ=$(grep '^project=' "$META" | cut -d= -f2-)
 
 KIND=$(grep '^kind=' "$META" | cut -d= -f2- || true)
@@ -97,8 +100,8 @@ if [ -d "$WT" ]; then
   ( cd "$PROJ" && treehouse return --force "$WT" )
 fi
 
-tmux kill-window -t "$T" 2>/dev/null || true
-rm -f "$STATE/$ID.status" "$STATE/$ID.turn-ended" "$STATE/$ID.check.sh" "$STATE/$ID.meta" "$STATE/$ID.pi-ext.ts"
+"$MUX" kill "$TARGET"
+rm -f "$STATE/$ID.status" "$STATE/$ID.turn-ended" "$STATE/$ID.check.sh" "$STATE/$ID.meta" "$STATE/$ID.pi-ext.ts" "$STATE/$ID.worktree-ready"
 if [ "$KIND" != scout ] && [ "$MODE" != local-only ]; then
   "$FM_ROOT/bin/fm-fleet-sync.sh" "$PROJ" || true
 fi
