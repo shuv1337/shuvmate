@@ -221,9 +221,9 @@ herdr_parse_target() {
       HMUX_PANE=$pane
       ;;
     *)
-      HMUX_TAB=${rest%%/*}
-      HMUX_PANE=${rest#*/}
-      HMUX_WS=${HMUX_TAB%%:*}
+      # raw form: herdr:<ws>/<tab_id>/<pane_id>; HMUX_WS is already split off above.
+      HMUX_TAB=${right%%/*}
+      HMUX_PANE=${right#*/}
       ;;
   esac
 }
@@ -605,8 +605,9 @@ cmd_kill() {
       zellij --session "$ZMUX_SES" action close-tab-by-id "$ZMUX_TAB" 2>/dev/null || true
       ;;
     herdr:*)
-      herdr_parse_target "$target"
-      herdr tab close "$HMUX_TAB" >/dev/null 2>&1 || true
+      if herdr_parse_target "$target"; then
+        herdr tab close "$HMUX_TAB" >/dev/null 2>&1 || true
+      fi
       ;;
     *) die "invalid target for kill: $target" ;;
   esac

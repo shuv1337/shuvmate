@@ -100,4 +100,51 @@ test_herdr_backend_contract() {
   pass "fm-mux herdr backend creates, resolves, sends, captures, and closes native tabs"
 }
 
+make_fake_herdr_no_tabs() {
+  local dir=$1 fakebin log
+  fakebin=$(fm_fakebin "$dir")
+  log="$dir/herdr.log"
+  : > "$log"
+  cat > "$fakebin/herdr" <<'SH'
+#!/usr/bin/env bash
+set -u
+log=${FM_FAKE_HERDR_LOG:?}
+printf '%s\n' "$*" >> "$log"
+case "${1:-} ${2:-}" in
+  "tab list")
+    printf '%s\n' '{"result":{"tabs":[]}}'
+    ;;
+  "tab close")
+    printf 'unexpected herdr call: %s\n' "$*" >&2
+    exit 2
+    ;;
+  *)
+    printf 'unexpected herdr call: %s\n' "$*" >&2
+    exit 2
+    ;;
+esac
+SH
+  chmod +x "$fakebin/herdr"
+  printf '%s\n' "$fakebin"
+}
+
+test_herdr_kill_already_gone_tab_is_idempotent() {
+  local case_dir fakebin home target log status
+  case_dir="$TMP_ROOT/already-gone"
+  mkdir -p "$case_dir/home/config" "$case_dir/cwd"
+  printf '%s\n' herdr > "$case_dir/home/config/multiplexer"
+  fakebin=$(make_fake_herdr_no_tabs "$case_dir")
+  log="$case_dir/herdr.log"
+  target="herdr:w1/fm-herdr-gone"
+
+  PATH="$fakebin:$BASE_PATH" HERDR_ENV=1 FM_HOME="$case_dir/home" FM_FAKE_HERDR_LOG="$log" \
+    "$ROOT/bin/fm-mux.sh" kill "$target"
+  status=$?
+  [ "$status" -eq 0 ] || fail "kill on an already-gone herdr tab did not exit 0: $status"
+
+  assert_not_contains "$(cat "$log")" "tab close" "kill on an already-gone tab must not attempt tab close"
+  pass "fm-mux herdr kill is a safe no-op when the tab is already gone"
+}
+
 test_herdr_backend_contract
+test_herdr_kill_already_gone_tab_is_idempotent
