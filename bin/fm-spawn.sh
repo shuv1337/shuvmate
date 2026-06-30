@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Spawn a direct report: a crewmate in a treehouse worktree, or a secondmate in
-# its isolated firstmate home. The task surface is a tmux window or zellij tab,
-# created and driven through bin/fm-mux.sh.
+# its isolated firstmate home. The task surface is a tmux window, zellij tab, or
+# herdr tab, created and driven through bin/fm-mux.sh.
 # Usage: fm-spawn.sh <task-id> <project-dir> [harness|launch-command] [--scout]
 #        fm-spawn.sh <task-id> [<firstmate-home>] [harness|launch-command] --secondmate
 #   With no harness arg, the harness comes from fm-harness.sh crew (config/crew-harness,
@@ -348,6 +348,10 @@ case "$MUX_NAME" in
       exit 1
     fi
     ;;
+  herdr)
+    command -v herdr >/dev/null || { echo "error: herdr selected in config/multiplexer but herdr is not installed" >&2; exit 1; }
+    [ -n "${HERDR_ENV:-}" ] || { echo "error: herdr selected in config/multiplexer but HERDR_ENV is not set; launch firstmate inside herdr" >&2; exit 1; }
+    ;;
   tmux)
     command -v tmux >/dev/null || { echo "error: tmux is not installed" >&2; exit 1; }
     ;;
@@ -359,12 +363,13 @@ W="fm-$ID"
 case "$TARGET" in
   tmux:*) T="${TARGET#tmux:}" ;;
   zellij:*) T="${TARGET#zellij:}"; T="${T%%:*}:$W" ;;
+  herdr:*) T="$W" ;;
   *) echo "error: unexpected target from fm-mux create: $TARGET" >&2; exit 1 ;;
 esac
 
 # For ship/scout tasks, enter the treehouse worktree. The task surface (tmux
-# window or zellij tab) was already created by `"$MUX" create` above; we drive it
-# through the mux helper so this works on both backends.
+# window, zellij tab, or herdr tab) was already created by `"$MUX" create` above;
+# we drive it through the mux helper so this works on every backend.
 if [ "$KIND" != secondmate ]; then
   "$MUX" send-text "$TARGET" 'treehouse get'
   "$MUX" send-key "$TARGET" Enter

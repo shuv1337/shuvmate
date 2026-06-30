@@ -41,6 +41,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
+MUX="$SCRIPT_DIR/fm-mux.sh"
 
 # shellcheck source=bin/fm-tmux-lib.sh
 . "$SCRIPT_DIR/fm-tmux-lib.sh"
@@ -72,8 +73,10 @@ meta_value() {  # <key>
 
 WT=$(meta_value worktree)
 WIN=$(meta_value window)
+TARGET=$(meta_value target)
 KIND=$(meta_value kind)
 [ -n "$KIND" ] || KIND=ship
+[ -n "$TARGET" ] || TARGET="tmux:$WIN"
 
 # A torn-down (or never-created) worktree has no current state to read.
 if [ -z "$WT" ] || [ ! -d "$WT" ]; then
@@ -118,8 +121,30 @@ LOG_VERB=$(log_verb_of "$LOG_LINE")
 # stays authoritative regardless of pane liveness - judge by the run-step, not the
 # shell - so a finished crew whose window has closed still reports its run-step
 # state (e.g. done) instead of being masked as unknown.
-pane_readable() {  # <target>
-  tmux display-message -p -t "$1" '#{pane_id}' >/dev/null 2>&1
+pane_readable() {  # <backend-target>
+  case "$1" in
+    tmux:*) tmux display-message -p -t "${1#tmux:}" '#{pane_id}' >/dev/null 2>&1 ;;
+    *) "$MUX" capture "$1" 1 >/dev/null 2>&1 ;;
+  esac
+}
+
+pane_busy() {  # <backend-target>
+  case "$1" in
+    tmux:*) fm_pane_is_busy "${1#tmux:}" ;;
+    *) return 1 ;;
+  esac
+}
+
+herdr_pane_id_from_target() {
+  local rest=${1#herdr:}
+  printf '%s' "${rest#*/}"
+}
+
+herdr_agent_status() {  # <herdr-target>
+  local pane
+  pane=$(herdr_pane_id_from_target "$1")
+  herdr pane get "$pane" 2>/dev/null \
+    | node -e 'const fs=require("fs"); const data=JSON.parse(fs.readFileSync(0,"utf8")); process.stdout.write(data.result?.pane?.agent_status || "");' 2>/dev/null
 }
 
 # --- no-mistakes run lookup (authoritative when a run matches this branch) --
@@ -349,11 +374,23 @@ fi
 # is no run to consult, so a dead/unreadable window means the crew is gone: report
 # unknown rather than trusting a possibly-stale status log as the current state.
 [ -n "$WIN" ] || emit unknown none "no window recorded"
-pane_readable "$WIN" || emit unknown none "window gone: $WIN"
+pane_readable "$TARGET" || emit unknown none "window gone: ${TARGET:-$WIN}"
+
+if [ "$KIND" != secondmate ]; then
+  case "$TARGET" in
+    herdr:*)
+      case "$(herdr_agent_status "$TARGET")" in
+        working) emit working pane "herdr agent working" ;;
+        blocked) emit blocked pane "herdr agent blocked" ;;
+        done) emit done pane "herdr agent done" ;;
+      esac
+      ;;
+  esac
+fi
 
 # Secondmates idle on their own watcher (idle pane = healthy), so the busy
 # signature is not meaningful for them; read their state from the status log only.
-if [ "$KIND" != secondmate ] && fm_pane_is_busy "$WIN"; then
+if [ "$KIND" != secondmate ] && pane_busy "$TARGET"; then
   emit working pane "harness busy"
 fi
 

@@ -52,21 +52,23 @@ Launch mechanics, including the verified command templates, live in [`bin/fm-spa
 ## Multiplexer backend (config/multiplexer)
 
 firstmate runs each crewmate in a multiplexer surface; tmux is the default backend.
-To use zellij tabs for new crewmate sessions, write the backend to the firstmate home's gitignored `config/multiplexer`:
+To use zellij or Herdr tabs for new crewmate sessions, write the backend to the firstmate home's gitignored `config/multiplexer`:
 
 ```sh
 mkdir -p config
 printf 'zellij\n' > config/multiplexer
+# or:
+printf 'herdr\n' > config/multiplexer
 ```
 
-Absent or `default` keeps tmux.
-`bin/fm-mux.sh` is the backend helper that creates, lists, sends to, captures, and kills task surfaces across both backends.
+Absent or `default` keeps tmux. Herdr mode requires firstmate itself to be running inside Herdr (`HERDR_ENV=1`).
+`bin/fm-mux.sh` is the backend helper that creates, lists, sends to, captures, and kills task surfaces across all supported backends.
 Existing in-flight tasks keep the backend they were spawned with, recorded in their `state/<id>.meta` as `mux=` and `target=`; a missing `mux=` means legacy tmux.
 Bootstrap offers to install whichever multiplexer is configured if it is missing.
 
 ## Toolchain
 
-On first launch the first mate detects what its required toolchain is missing or too old (tmux, node, gh, treehouse with durable lease support, no-mistakes v1.31.2 or newer, gh-axi, chrome-devtools-axi, lavish-axi), lists it with the exact install commands, and installs only after you say go.
+On first launch the first mate detects what its required toolchain is missing or too old (the configured multiplexer, node, gh, treehouse with durable lease support, no-mistakes v1.31.2 or newer, gh-axi, chrome-devtools-axi, lavish-axi), lists it with the exact install commands, and installs only after you say go.
 When X mode is opted in, bootstrap also requires `curl` and `jq` before arming the relay poll shim.
 If compatible `tasks-axi` is already on `PATH`, bootstrap records it as an optional capability fact and firstmate uses its verbs for routine backlog mutations; when it is absent or incompatible, firstmate keeps hand-editing `data/backlog.md` exactly as before.
 Bootstrap also reports a `TANGLE:` line when `FM_ROOT` is on a named non-default branch; follow the printed checkout remediation rather than treating it as an installable tool problem.

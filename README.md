@@ -30,7 +30,7 @@ You can run one coding agent easily.
 But the moment you want three project tasks done in parallel - fixes, investigations, plans, audits - you become a tab-juggler: babysitting sessions, copy-pasting context between repos, forgetting which terminal had the failing test.
 
 firstmate flips the model.
-You talk to a single agent - the first mate - and it runs the crew for you: spawning autonomous agents in tmux windows or zellij tabs, giving each a clean git worktree, supervising them to completion, and handing you finished PRs, approved local merges, or standalone investigation reports.
+You talk to a single agent - the first mate - and it runs the crew for you: spawning autonomous agents in tmux windows, zellij tabs, or Herdr tabs, giving each a clean git worktree, supervising them to completion, and handing you finished PRs, approved local merges, or standalone investigation reports.
 For larger fleets, you can opt in to persistent secondmates: domain supervisors that are still ordinary direct reports, but run from their own isolated firstmate homes.
 There is no app to install; the orchestrator is `AGENTS.md`, bundled skills, and helper scripts that any terminal coding agent can follow.
 
@@ -40,7 +40,7 @@ This is.. a directory that turns any agent into your firstmate, and you the capt
 ## Features
 
 - **One liaison** - you talk only to the first mate; it dispatches, supervises, escalates only real decisions, and reports plain outcomes.
-- **A visible crew** - every crewmate works in its own tmux window you can watch or type into; the first mate reconciles.
+- **A visible crew** - every crewmate works in its own multiplexer surface you can watch or type into; the first mate reconciles.
 - **Disposable worktrees** - each task runs in a clean [treehouse](https://github.com/kunchenguid/treehouse) git worktree, so parallel work on one repo never collides.
 - **Two task shapes** - ship tasks deliver a change; scout tasks investigate, plan, reproduce, or audit and leave a report.
 - **Explicit project modes** - each project ships via `no-mistakes`, `direct-PR`, or `local-only`, with an optional `+yolo` autonomy flag.
@@ -48,13 +48,13 @@ This is.. a directory that turns any agent into your firstmate, and you the capt
 - **Event-driven, zero-token supervision** - a bash watcher sleeps on the fleet and wakes the first mate only when something needs you.
 - **Optional X mode** - opt in with one local `.env` token so firstmate can answer your public `@myfirstmate` mentions, act on normal reversible mention requests through the same lifecycle as chat requests, acknowledge spawned work, and post one public-safe completion follow-up without changing non-X behavior; dry-run preview records would-be replies and dismissals locally before go-live.
 - **Guarded by construction** - the first mate is read-only over your projects outside guarded clone refreshes, safe branch pruning, and approved `local-only` fast-forward merges; crewmates make every project change behind your merge approval.
-- **Restart-proof** - all state lives on disk and in tmux; kill the session anytime and the next one reconciles and carries on.
+- **Restart-proof** - all state lives on disk and in the configured multiplexer; kill the session anytime and the next one reconciles and carries on.
 
 Full detail on every feature lives in [docs/architecture.md](docs/architecture.md).
 
 ## Quick Start
 
-**Requirements:** a verified agent harness (claude, codex, opencode, or pi), git with GitHub auth, and tmux (or zellij when configured) for the crew surfaces.
+**Requirements:** a verified agent harness (claude, codex, opencode, or pi), git with GitHub auth, and tmux, zellij, or Herdr for the crew surfaces.
 The first mate detects and offers to install everything else.
 
 ```sh
@@ -79,9 +79,9 @@ Then just talk:
 > alright merge it
 ```
 
-Run it inside tmux or zellij for the best experience: launching your harness from inside a multiplexer puts every crewmate in your own session, one per task, where you can watch the crew work in real time or type into any surface to intervene.
-Outside a multiplexer, crewmates land in a detached `firstmate` session you can attach to.
-tmux is the default; set `config/multiplexer` to `zellij` to use zellij tabs for new crewmate sessions (absent or `default` keeps tmux).
+Run it inside tmux, zellij, or Herdr for the best experience: launching your harness from inside a multiplexer puts every crewmate in your own session, one per task, where you can watch the crew work in real time or type into any surface to intervene.
+Outside a multiplexer, tmux crewmates land in a detached `firstmate` session you can attach to.
+tmux is the default; set `config/multiplexer` to `zellij` or `herdr` to use that backend for new crewmate sessions (absent or `default` keeps tmux). Herdr mode expects firstmate itself to be running inside Herdr.
 
 ## How It Works
 
@@ -109,8 +109,8 @@ tmux is the default; set `config/multiplexer` to `zellij` to use zellij tabs for
 ```
 
 You chat with the first mate.
-It routes each request to a crewmate in its own tmux window (or zellij tab) and git worktree, supervises the fleet with a zero-token event-driven watcher, and brings you finished PRs, approved local merges, or investigation reports.
-Stale-pane detection follows each task's recorded `state/<id>.meta` `target=` so tmux windows and zellij tabs are checked by their authoritative pane target.
+It routes each request to a crewmate in its own tmux window, zellij tab, or Herdr tab and git worktree, supervises the fleet with a zero-token event-driven watcher, and brings you finished PRs, approved local merges, or investigation reports.
+Stale-pane detection follows each task's recorded `state/<id>.meta` `target=` so task surfaces are checked by their authoritative pane target.
 Persistent secondmate homes are linked firstmate worktrees; startup syncs live ones and secondmate launch syncs the target home to the primary default-branch commit without fetching from origin when it is safe.
 When a routed request goes to a secondmate, firstmate marks it so the answer returns through status or a document pointer; direct typing into that secondmate window stays conversational.
 A presence-gated sub-supervisor (`/afk`) can self-handle routine events and batch only what matters while you step away.

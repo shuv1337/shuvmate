@@ -3,8 +3,8 @@
 # Usage: fm-send.sh <window-or-target> <text...>
 #   <window-or-target> may be a bare task name (fm-xyz), resolved through this
 #   home's state/<id>.meta (mux= and target=), an explicit session:window, or a
-#   backend target. Resolution and delivery go through fm-mux.sh so both tmux
-#   windows and zellij tabs are handled.
+#   backend target. Resolution and delivery go through fm-mux.sh so tmux
+#   windows, zellij tabs, and herdr tabs are handled.
 # Special keys instead of text: fm-send.sh <window-or-target> --key Escape   (or Enter, C-c, ...)
 #
 # Text submission is verified on the tmux backend: the line is typed ONCE, then
@@ -16,7 +16,8 @@
 # daemon via bin/fm-tmux-lib.sh. Tune with FM_SEND_RETRIES (default 3) /
 # FM_SEND_SLEEP (0.4). The zellij backend uses fm-mux.sh send-text/send-key with a
 # pre-Enter settle; its TUIs do not expose the tmux composer-introspection
-# primitives the verified-submit core needs.
+# primitives the verified-submit core needs. Herdr follows that same generic
+# backend path, with native pane send/read/close calls inside fm-mux.sh.
 # Slash commands, and codex `$...` skill invocations resolved through harness
 # meta, get a longer pre-Enter settle so completion popups do not swallow Enter.
 #
