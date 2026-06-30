@@ -7,3 +7,4 @@ data/
 .env
 config/crew-harness
 config/multiplexer
+config/x-mode.env

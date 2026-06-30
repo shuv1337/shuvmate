@@ -26,8 +26,11 @@
 #   fm-mux.sh --help
 set -eu
 
-FM_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-STATE="$FM_ROOT/state"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
+STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
+CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 DEFAULT_SESSION=firstmate
 
 usage() {
@@ -39,8 +42,8 @@ die() { echo "error: $*" >&2; exit 1; }
 
 read_mux_config() {
   local v=default
-  if [ -f "$FM_ROOT/config/multiplexer" ]; then
-    v=$(tr -d '[:space:]' < "$FM_ROOT/config/multiplexer" || true)
+  if [ -f "$CONFIG/multiplexer" ]; then
+    v=$(tr -d '[:space:]' < "$CONFIG/multiplexer" || true)
     [ -n "$v" ] || v=default
   fi
   printf '%s' "$v"
@@ -343,11 +346,36 @@ cmd_resolve_task() {
     printf '%s' "$arg"
     return 0
   fi
+  # An explicit session:window (the escape hatch for surfaces outside this home's
+  # meta) is treated as a bare tmux target. Backend-prefixed targets were already
+  # handled by parse_target above.
   case "$arg" in
-    *:*) cmd_resolve "$arg" ;;
+    *:*) printf 'tmux:%s' "$arg"; return 0 ;;
   esac
   id=$(task_id_from_name "$arg")
   meta="$STATE/$id.meta"
+  # A bare `fm-<id>` is resolved ONLY through this home's meta: home isolation
+  # means we must NOT fall back to a global multiplexer listing that could match a
+  # foreign same-named surface in another firstmate home. Refuse instead, with the
+  # escape-hatch hint to pass an explicit session:window for a surface outside this
+  # home (the same contract the tmux-only resolver enforced).
+  case "$arg" in
+    fm-*)
+      [ -f "$meta" ] || die "no metadata for $arg in $STATE; pass session:window to target a window outside this firstmate home"
+      mux=$(meta_field "$meta" mux)
+      target=$(meta_field "$meta" target)
+      window=$(meta_field "$meta" window)
+      [ -n "$mux" ] || mux=tmux
+      if [ -z "$target" ] && [ -n "$window" ]; then
+        target="tmux:$window"
+      fi
+      [ -n "$target" ] || die "no window recorded in $meta"
+      printf '%s' "$target"
+      return 0
+      ;;
+  esac
+  # A non-fm-* bare name: resolve by scanning live surfaces (used by interactive
+  # peeks of arbitrary windows). This was never home-scoped.
   if [ -f "$meta" ]; then
     mux=$(meta_field "$meta" mux)
     target=$(meta_field "$meta" target)
