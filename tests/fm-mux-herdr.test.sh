@@ -27,13 +27,13 @@ case "${1:-} ${2:-}" in
     ;;
   "tab list")
     if grep -q '^tab create ' "$log" 2>/dev/null; then
-      printf '%s\n' '{"result":{"tabs":[{"tab_id":"w1:t9","label":"fm-herdr-a","workspace_id":"w1"}]}}'
+      printf '%s\n' '{"result":{"tabs":[{"tab_id":"w1:t10","label":"fm-herdr-a","workspace_id":"w1"}]}}'
     else
       printf '%s\n' '{"result":{"tabs":[]}}'
     fi
     ;;
   "pane list")
-    printf '%s\n' '{"result":{"panes":[{"pane_id":"w1:p9","tab_id":"w1:t9","workspace_id":"w1"}]}}'
+    printf '%s\n' '{"result":{"panes":[{"pane_id":"w1:p10","tab_id":"w1:t10","workspace_id":"w1"}]}}'
     ;;
   "workspace list")
     printf '%s\n' '{"result":{"workspaces":[{"workspace_id":"w1"}]}}'
@@ -73,7 +73,7 @@ test_herdr_backend_contract() {
 
   target=$(PATH="$fakebin:$BASE_PATH" HERDR_ENV=1 FM_HOME="$case_dir/home" FM_FAKE_HERDR_LOG="$log" \
     "$ROOT/bin/fm-mux.sh" create herdr herdr-a "$case_dir/cwd")
-  [ "$target" = "herdr:w1:t9/w1:p9" ] || fail "unexpected create target: $target"
+  [ "$target" = "herdr:w1/fm-herdr-a" ] || fail "unexpected create target: $target"
 
   out=$(PATH="$fakebin:$BASE_PATH" HERDR_ENV=1 FM_HOME="$case_dir/home" FM_FAKE_HERDR_LOG="$log" \
     "$ROOT/bin/fm-mux.sh" list herdr)
@@ -94,9 +94,9 @@ test_herdr_backend_contract() {
     "$ROOT/bin/fm-mux.sh" kill "$target"
 
   assert_contains "$(cat "$log")" "tab create --workspace w1 --cwd $case_dir/cwd --label fm-herdr-a --no-focus" "create did not use herdr tab create"
-  assert_contains "$(cat "$log")" "pane send-text w1:p9 hello captain" "send-text did not target herdr pane"
-  assert_contains "$(cat "$log")" "pane send-keys w1:p9 Enter" "send-key did not target herdr pane"
-  assert_contains "$(cat "$log")" "tab close w1:t9" "kill did not close herdr tab"
+  assert_contains "$(cat "$log")" "pane send-text w1:p10 hello captain" "send-text did not target resolved herdr pane"
+  assert_contains "$(cat "$log")" "pane send-keys w1:p10 Enter" "send-key did not target resolved herdr pane"
+  assert_contains "$(cat "$log")" "tab close w1:t10" "kill did not close resolved herdr tab"
   pass "fm-mux herdr backend creates, resolves, sends, captures, and closes native tabs"
 }
 

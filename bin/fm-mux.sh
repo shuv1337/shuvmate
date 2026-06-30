@@ -208,11 +208,24 @@ herdr_root_pane_for_tab() {
 }
 
 herdr_parse_target() {
-  # herdr:<tab_id>/<pane_id>; ids themselves contain colons.
-  local rest=${1#herdr:}
-  HMUX_TAB=${rest%%/*}
-  HMUX_PANE=${rest#*/}
-  HMUX_WS=${HMUX_TAB%%:*}
+  local rest=${1#herdr:} right tab pane
+  HMUX_WS=${rest%%/*}
+  right=${rest#*/}
+  case "$right" in
+    fm-*)
+      tab=$(herdr_tab_id_by_name "$HMUX_WS" "$right") || true
+      [ -n "$tab" ] || return 1
+      pane=$(herdr_root_pane_for_tab "$HMUX_WS" "$tab") || true
+      [ -n "$pane" ] || return 1
+      HMUX_TAB=$tab
+      HMUX_PANE=$pane
+      ;;
+    *)
+      HMUX_TAB=${rest%%/*}
+      HMUX_PANE=${rest#*/}
+      HMUX_WS=${HMUX_TAB%%:*}
+      ;;
+  esac
 }
 
 herdr_target_for_tab() {
@@ -221,7 +234,7 @@ herdr_target_for_tab() {
   [ -n "$tab" ] || return 1
   pane=$(herdr_root_pane_for_tab "$ws" "$tab") || true
   [ -n "$pane" ] || return 1
-  printf 'herdr:%s/%s' "$tab" "$pane"
+  printf 'herdr:%s/%s' "$ws" "$tab_name"
 }
 
 parse_target() {
@@ -290,8 +303,8 @@ cmd_create() {
       if [ -n "$(herdr_tab_id_by_name "$ws" "$name" || true)" ]; then
         die "tab $ws:$name already exists"
       fi
-      target=$(herdr tab create --workspace "$ws" --cwd "$cwd" --label "$name" --no-focus \
-        | json_get '"herdr:" + data.result.tab.tab_id + "/" + data.result.root_pane.pane_id')
+      herdr tab create --workspace "$ws" --cwd "$cwd" --label "$name" --no-focus >/dev/null
+      target=$(herdr_target_for_tab "$ws" "$name") || true
       [ -n "$target" ] || die "could not create herdr tab for $name"
       ;;
     *) die "unknown mux for create: $mux" ;;
