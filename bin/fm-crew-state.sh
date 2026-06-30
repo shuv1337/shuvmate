@@ -135,16 +135,46 @@ pane_busy() {  # <backend-target>
   esac
 }
 
+herdr_json_get() {
+  local expr=$1
+  node -e 'const fs=require("fs"); const data=JSON.parse(fs.readFileSync(0,"utf8")); const fn=new Function("data", "return " + process.argv[1]); const v=fn(data); if (v !== undefined && v !== null) process.stdout.write(String(v));' "$expr"
+}
+
+herdr_tab_id_by_name() {
+  local ws=$1 name=$2
+  herdr tab list --workspace "$ws" 2>/dev/null \
+    | HERDR_TAB_NAME=$name herdr_json_get '(data.result.tabs || []).find(t => t.label === process.env.HERDR_TAB_NAME)?.tab_id' 2>/dev/null
+}
+
+herdr_root_pane_for_tab() {
+  local ws=$1 tab=$2
+  herdr pane list --workspace "$ws" 2>/dev/null \
+    | HERDR_TAB_ID=$tab herdr_json_get '(data.result.panes || []).find(p => p.tab_id === process.env.HERDR_TAB_ID)?.pane_id' 2>/dev/null
+}
+
 herdr_pane_id_from_target() {
-  local rest=${1#herdr:}
-  printf '%s' "${rest#*/}"
+  local rest=${1#herdr:} ws right tab pane
+  ws=${rest%%/*}
+  right=${rest#*/}
+  case "$right" in
+    fm-*)
+      tab=$(herdr_tab_id_by_name "$ws" "$right") || true
+      [ -n "$tab" ] || return 1
+      pane=$(herdr_root_pane_for_tab "$ws" "$tab") || true
+      [ -n "$pane" ] || return 1
+      printf '%s' "$pane"
+      ;;
+    *)
+      printf '%s' "$right"
+      ;;
+  esac
 }
 
 herdr_agent_status() {  # <herdr-target>
   local pane
-  pane=$(herdr_pane_id_from_target "$1")
+  pane=$(herdr_pane_id_from_target "$1") || return 0
   herdr pane get "$pane" 2>/dev/null \
-    | node -e 'const fs=require("fs"); const data=JSON.parse(fs.readFileSync(0,"utf8")); process.stdout.write(data.result?.pane?.agent_status || "");' 2>/dev/null
+    | herdr_json_get 'data.result?.pane?.agent_status || data.result?.agent?.status || ""' 2>/dev/null
 }
 
 # --- no-mistakes run lookup (authoritative when a run matches this branch) --

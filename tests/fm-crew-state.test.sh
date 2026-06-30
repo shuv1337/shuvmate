@@ -73,7 +73,29 @@ case "${1:-}" in
 esac
 exit 0
 SH
-  chmod +x "$fb/no-mistakes" "$fb/tmux"
+  cat > "$fb/herdr" <<'SH'
+#!/usr/bin/env bash
+set -u
+[ -n "${FM_FAKE_HERDR_LOG:-}" ] && printf '%s\n' "$*" >> "$FM_FAKE_HERDR_LOG"
+case "${1:-} ${2:-}" in
+  "tab list")
+    printf '%s\n' '{"result":{"tabs":[{"tab_id":"w1:t10","label":"fm-herdr-status","workspace_id":"w1"}]}}'
+    ;;
+  "pane list")
+    printf '%s\n' '{"result":{"panes":[{"pane_id":"w1:p10","tab_id":"w1:t10","workspace_id":"w1"}]}}'
+    ;;
+  "pane get")
+    printf '%s\n' '{"result":{"pane":{"pane_id":"w1:p10","agent_status":"working"}}}'
+    ;;
+  "pane read")
+    printf '%s\n' 'herdr pane output'
+    ;;
+  *)
+    exit 2
+    ;;
+esac
+SH
+  chmod +x "$fb/no-mistakes" "$fb/tmux" "$fb/herdr"
   printf '%s\n' "$fb"
 }
 
@@ -109,7 +131,8 @@ reset_fakes() {
   FM_FAKE_AXI_LIST=""
   FM_FAKE_BUSY=0
   FM_FAKE_TMUX_MISSING=0
-  export FM_FAKE_AXI_STATUS FM_FAKE_AXI_STATUS_RUN FM_FAKE_AXI_LIST FM_FAKE_BUSY FM_FAKE_TMUX_MISSING
+  FM_FAKE_HERDR_LOG=""
+  export FM_FAKE_AXI_STATUS FM_FAKE_AXI_STATUS_RUN FM_FAKE_AXI_LIST FM_FAKE_BUSY FM_FAKE_TMUX_MISSING FM_FAKE_HERDR_LOG
 }
 
 # --- run-object fixtures (TOON, as `no-mistakes axi status` emits) -----------
@@ -458,6 +481,25 @@ test_no_run_busy_pane() {
   pass "no run + busy pane reads working from the pane"
 }
 
+test_no_run_herdr_status_resolves_stable_target() {
+  reset_fakes
+  local d log out
+  d=$(new_case herdr-status)
+  log="$d/herdr.log"
+  make_repo_on_branch "$d/wt" fm/feat-herdr-status
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-herdr-status.meta" "window=fm-herdr-status" "target=herdr:w1/fm-herdr-status" "worktree=$d/wt" "kind=ship"
+  FM_FAKE_AXI_STATUS=""
+  FM_FAKE_AXI_LIST=""
+  FM_FAKE_HERDR_LOG="$log"
+  out=$(run_crew_state "$d" feat-herdr-status)
+  assert_contains "$out" "state: working" "herdr agent_status -> working"
+  assert_contains "$out" "source: pane" "herdr agent_status -> pane source"
+  assert_contains "$(cat "$log")" "pane get w1:p10" "herdr status resolved stable target to live pane"
+  assert_not_contains "$(cat "$log")" "pane get fm-herdr-status" "herdr status did not use stable label as pane id"
+  pass "no run + herdr agent_status resolves stable target"
+}
+
 # (g) no run + idle pane -> the status-log verb, as-is
 test_no_run_idle_pane_uses_log() {
   reset_fakes
@@ -615,6 +657,7 @@ test_cross_branch_attribution_via_list
 test_cross_branch_attribution_unquoted_run_list
 test_other_branch_run_ignored
 test_no_run_busy_pane
+test_no_run_herdr_status_resolves_stable_target
 test_no_run_idle_pane_uses_log
 test_dead_window_ignores_stale_status_log
 test_dead_window_still_reports_terminal_run_step
