@@ -595,6 +595,7 @@ if [ "$KIND" = secondmate ]; then
   remove_secondmate_registry_entry "$ID"
 fi
 rm -f "$STATE/$ID.status" "$STATE/$ID.turn-ended" "$STATE/$ID.check.sh" "$STATE/$ID.meta" "$STATE/$ID.pi-ext.ts" "$STATE/$ID.worktree-ready"
+"$FM_ROOT/bin/fm-captain-asks.sh" resolve "$ID" --note "task landed or retired" >/dev/null || true
 if [ "$KIND" != scout ] && [ "$KIND" != secondmate ] && [ "$MODE" != local-only ]; then
     "$FM_ROOT/bin/fm-fleet-sync.sh" "$PROJ" || true
 fi

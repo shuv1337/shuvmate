@@ -78,6 +78,7 @@ config/x-mode.env    generated X-mode watcher cadence; LOCAL, gitignored; source
 data/                personal fleet records; LOCAL, gitignored as a whole
   backlog.md         task queue, dependencies, history
   captain.md         captain's curated personal preferences and working style; LOCAL, gitignored, and canonical even if harness memory mirrors it
+  captain-asks.md    operator-facing list of open decisions, blockers, credentials, review/merge approvals, and other captain-owned actions
   projects.md        thin fleet navigation registry; firstmate-private, parsed by fm-project-mode.sh (section 6)
   secondmates.md      secondmate routing table; firstmate-private, maintained by fm-home-seed.sh (section 6)
   <id>/brief.md      per-task crewmate brief, or per-secondmate charter brief when kind=secondmate
@@ -191,7 +192,7 @@ Reconcile reality with your records before doing anything else:
    The main firstmate reconciles only direct reports.
    Each secondmate is a firstmate in its own home, so it reconciles only work that is already its own and then idles; it never creates new work during recovery.
 8. If `state/.afk` is present, load `/afk`, ensure the daemon is running, do not separately arm the watcher because the daemon owns it, and resume away-mode supervision.
-9. Surface only what needs the captain: pending decisions, PRs ready to merge, failures, or needed credentials.
+9. Sync the operator ask ledger with `bin/fm-captain-asks.sh sync-from-state`, then surface only what needs the captain: pending decisions, PRs ready to merge, failures, or needed credentials.
    If there is nothing that needs them, say nothing and resume.
 10. Handle drained wakes, then follow the section 8 watcher checklist; if `state/.afk` exists, the daemon owns the watcher.
 
@@ -393,6 +394,8 @@ Load `harness-adapters` for the target harness's skill invocation form; natural 
 The crewmate drives the no-mistakes pipeline (review, test, document, lint, push, PR, CI) itself.
 The ship brief intentionally does not restate no-mistakes gate mechanics; it points the crewmate to the version-matched SKILL.md loaded by `/no-mistakes`, `no-mistakes axi run --help`, and per-response `help` lines.
 Firstmate's wrapper stays narrow: `ask-user` findings return through `needs-decision`, captain-owned decisions go back through `no-mistakes axi respond`, crewmate validation avoids `--yes`, and CI-green completion is reported as `done: PR {url} checks green`.
+When a `needs-decision`, `blocked`, or `failed` status means the captain owns the next action, record it before or as you ask: `bin/fm-captain-asks.sh add <id> decision|blocker|failure '<plain captain-facing ask>' --source 'status:<id>.status'`.
+When the captain answers and you relay the answer back to the crewmate or validation gate, clear the matching entry with `bin/fm-captain-asks.sh resolve <id> [type] --note '<short outcome>'`.
 Use chat for yes/no decisions; use lavish-axi when there are multiple findings or options to triage.
 
 Judge a validating crewmate by the run's step status, never by whether its shell is still running.
@@ -414,6 +417,7 @@ The fields below name the run-step states and outcomes it reads from `no-mistake
 
 For PR-based ship tasks, the ready signal depends on mode: `no-mistakes` reports `done: PR <url> checks green` after CI is green, while `direct-PR` reports `done: PR <url>` after opening the PR.
 Run `bin/fm-pr-check.sh <id> <PR url>` - it records `pr=` and a verified `pr_head=` when available in the task's meta and arms the watcher's merge poll.
+For `yolo=off`, `fm-pr-check.sh` also records the open merge/review ask in `data/captain-asks.md`.
 Tell the captain: the PR's full URL (always the complete `https://...` link, never a bare `#number` - the captain's terminal makes a full URL clickable), a one-paragraph summary, and, for `no-mistakes`, the risk level it emitted.
 (The check contract, for any custom `state/<id>.check.sh` you write yourself: print one line only when firstmate should wake, print nothing otherwise, and finish before `FM_CHECK_TIMEOUT`.)
 
@@ -512,6 +516,7 @@ On wake, in order of cheapness:
 1. Read the reason line and drain queued wake records with `bin/fm-wake-drain.sh`.
 2. `signal:` read the listed status files first; a wake lists every signal that landed within the coalescing grace window (e.g. a status write plus the same turn's turn-end marker), and each is ~30 tokens and usually sufficient.
    A status line is the wake *event*, not the crewmate's current state; when you need the live state - especially to confirm a `needs-decision`/`blocked` is still real and not already resolved-and-resumed - read it with `bin/fm-crew-state.sh <id>`, which reconciles the authoritative run-step over the possibly-stale log line, and never `tail` the status log as the current-state source.
+   If the signal leaves a captain-owned action open, add it to `data/captain-asks.md` with `bin/fm-captain-asks.sh add` before ending the turn.
 3. `stale:` the crewmate stopped without reporting; peek the pane (`bin/fm-peek.sh <window>`) to diagnose.
    If the pane is waiting, looping, confused, or unresponsive, load `stuck-crewmate-recovery`.
 4. `check:` a per-task poll fired (usually a merge, or X mode when enabled); act on it.
@@ -599,6 +604,40 @@ Use lavish-axi for multi-option decisions and structured reports worth a visual;
 Whenever you reference a PR to the captain - review-ready work, a requested status answer, or a recent-work summary - give its full `https://...` URL, never a bare `#number`: the captain's terminal makes a full URL clickable.
 A shorthand `#number` is fine only as a back-reference after the full URL has already appeared in the same message.
 As a courtesy, mention cost when unusually much work is running (more than ~8 concurrent jobs); never block on it.
+
+## 9.1 Captain ask ledger
+
+`data/captain-asks.md` is the captain's skim surface for "what is waiting on me?"
+It is local, gitignored fleet state, like `data/backlog.md`, and it exists because chat scrollback gets buried by supervision updates.
+Keep it current with `bin/fm-captain-asks.sh`; do not rely on raw status files as the operator view.
+
+Add an open ask whenever firstmate needs the captain to do or decide something before work can continue:
+
+- merge or review approval for a PR;
+- local-only merge approval;
+- `needs-decision` validation or product choices;
+- real blockers, failures, missing credentials, logins, or destructive/irreversible/security-sensitive confirmations.
+
+Do not add routine FYI updates, work that firstmate can resolve under `yolo=on`, or background supervision mechanics.
+Use one line per captain-owned action and phrase the summary in captain-facing outcome language.
+`bin/fm-pr-check.sh` automatically records PR merge/review approvals when `yolo=off`.
+For everything else, add it directly:
+
+```sh
+bin/fm-captain-asks.sh add <id> decision '<what the captain needs to decide>' --source 'status:<id>.status'
+bin/fm-captain-asks.sh add <id> blocker '<what is blocked and what input is needed>' --source 'status:<id>.status'
+bin/fm-captain-asks.sh add <id> local-merge '<local merge approval summary>' --source 'review:<id>'
+```
+
+Resolve an ask as soon as the captain answers and firstmate has applied that answer, or when the task lands/tears down:
+
+```sh
+bin/fm-captain-asks.sh resolve <id> decision --note '<decision applied>'
+bin/fm-captain-asks.sh resolve <id> local-merge --note 'merged local main'
+```
+
+On recovery, run `bin/fm-captain-asks.sh sync-from-state` before summarizing pending work so a missed status event becomes visible in the ledger.
+Then inspect `bin/fm-captain-asks.sh list` and include the open items in the captain-facing catch-up only when the captain needs to act.
 
 ## 10. Backlog format
 

@@ -35,6 +35,10 @@ if [ -f "$META" ]; then
   if [ -n "$PR_HEAD" ] && ! grep -qxF "pr_head=$PR_HEAD" "$META"; then
     echo "pr_head=$PR_HEAD" >> "$META"
   fi
+  YOLO=$(grep '^yolo=' "$META" | tail -1 | cut -d= -f2- || true)
+  if [ "$YOLO" != on ]; then
+    "$FM_ROOT/bin/fm-captain-asks.sh" add "$ID" merge "Review and merge PR $URL" --source "fm-pr-check" >/dev/null
+  fi
 fi
 
 cat > "$STATE/$ID.check.sh" <<EOF

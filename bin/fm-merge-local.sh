@@ -65,4 +65,5 @@ fi
 before=$(git -C "$PROJ" rev-parse --short "$DEFAULT")
 git -C "$PROJ" merge --ff-only "$BRANCH" >/dev/null
 after=$(git -C "$PROJ" rev-parse --short "$DEFAULT")
+"$FM_ROOT/bin/fm-captain-asks.sh" resolve "$ID" local-merge --note "merged local $DEFAULT $after" >/dev/null || true
 echo "merged $BRANCH into local $DEFAULT ($before -> $after) in $PROJ"
