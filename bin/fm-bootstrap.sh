@@ -4,7 +4,9 @@
 #          Detect: prints one line per problem or capability fact and exits 0.
 #          Silent = all good.
 #          Lines: "MISSING: <tool> (install: <command>)", "NEEDS_GH_AUTH",
-#                 "CREW_HARNESS_OVERRIDE: <name>", "MULTIPLEXER_OVERRIDE: <name>",
+#                 "CREW_HARNESS_OVERRIDE: <name>",
+#                 "SECONDMATE_HARNESS_OVERRIDE: <name>",
+#                 "MULTIPLEXER_OVERRIDE: <name>",
 #                 "FLEET_SYNC: <repo>: skipped|recovered|STUCK: <detail>",
 #                 "TASKS_AXI: available", "TANGLE: <remediation>",
 #                 "SECONDMATE_SYNC: secondmate <id>: skipped: <reason>",
@@ -330,6 +332,9 @@ fi
 crew=
 [ -f "$CONFIG/crew-harness" ] && crew=$(tr -d '[:space:]' < "$CONFIG/crew-harness" || true)
 [ -n "$crew" ] && [ "$crew" != "default" ] && echo "CREW_HARNESS_OVERRIDE: $crew"
+secondmate_harness=
+[ -f "$CONFIG/secondmate-harness" ] && secondmate_harness=$(tr -d '[:space:]' < "$CONFIG/secondmate-harness" || true)
+[ -n "$secondmate_harness" ] && [ "$secondmate_harness" != "default" ] && echo "SECONDMATE_HARNESS_OVERRIDE: $secondmate_harness"
 mux_cfg=
 [ -f "$CONFIG/multiplexer" ] && mux_cfg=$(tr -d '[:space:]' < "$CONFIG/multiplexer" || true)
 [ -n "$mux_cfg" ] && [ "$mux_cfg" != "default" ] && echo "MULTIPLEXER_OVERRIDE: $mux_cfg"

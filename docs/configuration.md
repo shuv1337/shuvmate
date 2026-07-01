@@ -49,6 +49,32 @@ claude, codex, opencode, and pi are all empirically verified; new harnesses get 
 The verified adapter knowledge - busy signatures, interrupt and exit commands, skill-invocation syntax, and per-harness quirks - lives in [`.agents/skills/harness-adapters/SKILL.md`](../.agents/skills/harness-adapters/SKILL.md).
 Launch mechanics, including the verified command templates, live in [`bin/fm-spawn.sh`](../bin/fm-spawn.sh).
 
+## Harness selection (config/crew-harness / config/secondmate-harness)
+
+Harness selection is role-specific.
+Ship/scout worker agents read `config/crew-harness` from the active firstmate home.
+Persistent secondmate supervisor panes read `config/secondmate-harness` from the main firstmate home.
+Absent or `default` mirrors the harness running that firstmate home.
+
+To run firstmate in Claude while dispatching Codex workers:
+
+```sh
+mkdir -p config
+printf 'codex\n' > config/crew-harness
+claude
+```
+
+To also force persistent secondmate supervisors to Claude, even if worker defaults change:
+
+```sh
+printf 'claude\n' > config/secondmate-harness
+```
+
+When a new secondmate home is seeded, `fm-home-seed.sh` copies the parent home's non-default `config/crew-harness` into the secondmate home if that home does not already have one.
+That lets a Claude secondmate dispatch Codex crewmates from its own home.
+Existing secondmate homes keep their own `config/crew-harness`.
+Secondmate respawn preserves the recorded supervisor `harness=` from `state/<id>.meta` when present.
+
 ## Multiplexer backend (config/multiplexer)
 
 firstmate runs each crewmate in a multiplexer surface; tmux is the default backend.

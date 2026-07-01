@@ -71,7 +71,8 @@ README.md            public overview and development notes
 .claude/skills       symlink to .agents/skills for claude compatibility
 bin/                 helper scripts, committed; read each script's header before first use
 .env                 optional X-mode pairing token; LOCAL, gitignored; presence-gates section 14
-config/crew-harness  crewmate harness override; LOCAL, gitignored; absent or "default" = same as firstmate
+config/crew-harness  worker harness override for ship/scout crewmates; LOCAL, gitignored; absent or "default" = same as that firstmate home
+config/secondmate-harness  supervisor harness override for persistent secondmate panes; LOCAL, gitignored; absent or "default" = same as main firstmate
 config/multiplexer   crewmate multiplexer override; LOCAL, gitignored; absent or "default" = tmux; can be tmux, zellij, or herdr
 config/x-mode.env    generated X-mode watcher cadence; LOCAL, gitignored; source before arming watcher when present
 data/                personal fleet records; LOCAL, gitignored as a whole
@@ -124,7 +125,8 @@ Otherwise it prints one line per problem or capability fact; handle each:
   For `no-mistakes`, this also covers an installed version older than 1.31.2, because crewmate validation briefs delegate gate mechanics to no-mistakes' version-matched guidance.
 - `NEEDS_GH_AUTH` - ask the captain to run `! gh auth login` (interactive; you cannot run it for them).
 - `TANGLE: <remediation>` - the firstmate primary checkout (the repo root, `FM_ROOT`) is stranded on a feature branch instead of its default branch: a crewmate working firstmate-on-itself branched/committed in the primary instead of its own isolated worktree (section 8). The work is safe on that branch ref; restore the primary to its default branch with the printed `git -C <root> checkout <default>`, then re-validate that branch in a proper worktree. This is the only sanctioned firstmate-initiated git write to the primary, and it is a non-destructive branch switch that strands nothing.
-- `CREW_HARNESS_OVERRIDE: <name>` - record and use the override silently; surface a harness fact only if it actually blocks work or the captain asks.
+- `CREW_HARNESS_OVERRIDE: <name>` - record and use the worker override silently; surface a harness fact only if it actually blocks work or the captain asks.
+- `SECONDMATE_HARNESS_OVERRIDE: <name>` - record and use the persistent secondmate supervisor override silently; surface a harness fact only if it actually blocks work or the captain asks.
 - `FLEET_SYNC: <repo>: skipped: <reason>` - a benign one-off skip (offline, no origin, local-only); bootstrap continued, investigate only if it blocks work.
 - `FLEET_SYNC: <repo>: recovered: <detail>` - the clone had drifted onto a clean detached HEAD holding no unique commits and the sync self-healed it (re-attached the default branch and fast-forwarded); no action needed, it is reported only so the self-heal is visible.
 - `FLEET_SYNC: <repo>: STUCK: on <state>, N commits behind <base> - needs attention` - the clone is dirty, on a non-default branch, detached with unique commits, or diverged, so the sync left it untouched (never forcing or discarding); it will keep falling behind until you look. A loud STUCK, especially a growing N across bootstraps, means that clone needs hands-on attention; dispatch a crewmate or resolve it before it strands work.
@@ -148,20 +150,24 @@ Treat any harness memory of these preferences as a recall cache only; `data/capt
 Do not dispatch any work until the tools that work needs are present and GitHub auth is good.
 Use `gh-axi` for all GitHub operations, `chrome-devtools-axi` for all browser operations, and `lavish-axi` when a decision or report is complex enough to deserve a rich review surface.
 Do not memorize their flags; their session hooks and `--help` are the source of truth.
-If the captain names a different crewmate harness at bootstrap or later, write it to `config/crew-harness` (local, gitignored); that is the whole switch.
+If the captain names a different worker harness at bootstrap or later, write it to `config/crew-harness` (local, gitignored); that switches ship/scout crewmates and is copied into newly seeded secondmate homes as their worker default when they have no existing worker override.
+If the captain names a different persistent secondmate supervisor harness, write it to `config/secondmate-harness` (local, gitignored); that switches `--secondmate` launches without changing worker agents.
 If the captain prefers zellij or Herdr over tmux, write `zellij` or `herdr` to `config/multiplexer` (local, gitignored); absent or `default` keeps tmux. Herdr mode requires firstmate itself to be running inside Herdr (`HERDR_ENV=1`).
 
 ## 4. Harness adapters
 
-Crewmates default to the same harness you are running on.
-The captain may override this at any time, typically at bootstrap: record the choice in `config/crew-harness` (a single adapter name; absent or `default` means mirror your own harness).
-The recorded harness is used for every dispatch until changed; a per-task instruction from the captain ("run this one on codex") overrides it for that dispatch only.
-Resolve `default` with `bin/fm-harness.sh`; resolve the active crewmate harness with `bin/fm-harness.sh crew`.
+Ship and scout crewmates default to the same harness their supervising firstmate home is running on.
+The captain may override workers at any time, typically at bootstrap: record the choice in `config/crew-harness` (a single adapter name; absent or `default` means mirror that firstmate home's own harness).
+Persistent secondmate supervisors have their own override: `config/secondmate-harness` (absent or `default` means mirror the main firstmate's own harness).
+This lets firstmate run in one harness, launch secondmate supervisors in another, and let those supervisors dispatch their own workers through their home-local `config/crew-harness`.
+The recorded worker harness is used for every ship/scout dispatch until changed; a per-task instruction from the captain ("run this one on codex") overrides it for that dispatch only.
+Secondmate respawn preserves the existing `state/<id>.meta` `harness=` value when present, so a recovered supervisor does not silently change harness after the worker default changes.
+Resolve `default` with `bin/fm-harness.sh`; resolve the active worker harness with `bin/fm-harness.sh crew`; resolve the active secondmate supervisor harness with `bin/fm-harness.sh secondmate`.
 
 Each adapter splits into mechanics and knowledge.
 The mechanics (launch command, autonomy flag, turn-end hook) live in `bin/fm-spawn.sh`; the knowledge you need while supervising (busy signature, exit, interrupt, dialogs, quirks, skill invocation, resume) lives in the agent-only `harness-adapters` skill.
 **Never dispatch a crewmate on an unverified adapter.**
-If `config/crew-harness` names an unverified one, tell the captain and fall back to your own harness until it is verified.
+If `config/crew-harness` or `config/secondmate-harness` names an unverified one, tell the captain and fall back to your own harness until it is verified.
 If the captain asks for a new harness, load `harness-adapters`, verify it empirically with a trivial supervised task, then commit the script and knowledge changes.
 Load `harness-adapters` before any spawn, recovery, trust-dialog handling, harness-specific skill invocation, interrupt, exit, resume, or adapter verification.
 
@@ -334,10 +340,10 @@ Write the brief per section 11.
 Load `harness-adapters` before spawning or recovering any direct report so trust dialogs, verified adapters, and harness-specific behavior are handled correctly.
 
 ```sh
-bin/fm-spawn.sh <id> projects/<repo>             # uses the active crewmate harness
+bin/fm-spawn.sh <id> projects/<repo>             # uses the active worker harness
 bin/fm-spawn.sh <id> projects/<repo> codex       # per-task harness override
 bin/fm-spawn.sh <id> projects/<repo> --scout     # scout task; records kind=scout in meta
-bin/fm-spawn.sh <id> --secondmate                 # launch a registered persistent secondmate in its home
+bin/fm-spawn.sh <id> --secondmate                 # launch a registered persistent secondmate in its home with the active secondmate harness
 bin/fm-spawn.sh <id> <firstmate-home> --secondmate   # launch or recover an explicit secondmate home
 bin/fm-spawn.sh <id1>=projects/<repo1> <id2>=projects/<repo2> [--scout]   # batch: one call, several tasks
 ```
@@ -345,7 +351,7 @@ bin/fm-spawn.sh <id1>=projects/<repo1> <id2>=projects/<repo2> [--scout]   # batc
 Dispatch several tasks in one call by passing `id=repo` pairs instead of a single `<id> <project>`; each pair is spawned through the same single-task path, a shared `--scout` applies to all, and the looping happens inside the script so you never hand-write a multi-task shell loop.
 If one pair fails, the rest still run and the batch exits non-zero.
 
-The script resolves the harness (`fm-harness.sh crew`), owns the verified launch templates, resolves the project's delivery mode (`fm-project-mode.sh`) for ship/scout tasks, and records `harness=`, `kind=`, `mode=`, and `yolo=` in the task's meta; a non-flag third argument containing whitespace is treated as a raw launch command (only for verifying new adapters).
+The script resolves the role harness (`fm-harness.sh crew` for ship/scout workers, `fm-harness.sh secondmate` for secondmate supervisors), owns the verified launch templates, resolves the project's delivery mode (`fm-project-mode.sh`) for ship/scout tasks, and records `harness=`, `kind=`, `mode=`, and `yolo=` in the task's meta; a non-flag third argument containing whitespace is treated as a raw launch command (only for verifying new adapters).
 For `kind=secondmate`, the same script launches in the registered or explicit firstmate home instead of running `treehouse get` for a project, records `home=` and `projects=`, and uses the charter brief as the launch prompt.
 
 For ship and scout tasks, the script creates the task surface (in your current multiplexer session, or a dedicated `firstmate` session when you are outside one), runs `treehouse get`, waits for the worktree subshell, asserts the resolved worktree is a genuine isolated worktree distinct from the primary checkout (aborting the spawn otherwise, to prevent the worktree tangle of section 8), installs the turn-end hook, records `state/<id>.meta` (including `mux=` and `target=`), and launches the agent with the brief.

@@ -6,8 +6,12 @@
 # enter treehouse worktrees from the created task surface.
 # Usage: fm-spawn.sh <task-id> <project-dir> [harness|launch-command] [--scout]
 #        fm-spawn.sh <task-id> [<firstmate-home>] [harness|launch-command] --secondmate
-#   With no harness arg, the harness comes from fm-harness.sh crew (config/crew-harness,
-#   falling back to firstmate's own harness). A bare adapter name (claude|codex|
+#   With no harness arg, ship/scout harnesses come from fm-harness.sh crew
+#   (config/crew-harness, falling back to firstmate's own harness), while
+#   secondmate supervisor harnesses come from fm-harness.sh secondmate
+#   (config/secondmate-harness, falling back to firstmate's own harness).
+#   If an existing secondmate meta records harness=, respawn preserves that value.
+#   A bare adapter name (claude|codex|
 #   opencode|pi) overrides it for this spawn. A non-flag string containing whitespace
 #   is treated as a RAW launch command - the escape hatch for verifying new adapters.
 #   --scout records kind=scout in the task's meta (report deliverable, scratch worktree;
@@ -148,6 +152,22 @@ launch_template() {
   esac
 }
 
+default_harness_for_spawn() {
+  local meta_harness
+  if [ "$KIND" = secondmate ] && [ -f "$STATE/$ID.meta" ]; then
+    meta_harness=$(grep '^harness=' "$STATE/$ID.meta" 2>/dev/null | tail -1 | cut -d= -f2- || true)
+    if [ -n "$meta_harness" ]; then
+      printf '%s\n' "$meta_harness"
+      return
+    fi
+  fi
+  if [ "$KIND" = secondmate ]; then
+    "$FM_ROOT/bin/fm-harness.sh" secondmate
+  else
+    "$FM_ROOT/bin/fm-harness.sh" crew
+  fi
+}
+
 case "$ARG3" in
   *' '*)  # raw launch command (unverified-adapter escape hatch)
     LAUNCH=$ARG3
@@ -157,8 +177,8 @@ case "$ARG3" in
     done
     ;;
   '')
-    HARNESS=$("$FM_ROOT/bin/fm-harness.sh" crew)
-    LAUNCH=$(launch_template "$HARNESS" "$KIND") || { echo "error: no launch template for harness '$HARNESS' (from config/crew-harness or detection); pass a raw launch command to use an unverified adapter" >&2; exit 1; }
+    HARNESS=$(default_harness_for_spawn)
+    LAUNCH=$(launch_template "$HARNESS" "$KIND") || { echo "error: no launch template for harness '$HARNESS' (from recorded secondmate meta, role harness config, or detection); pass a raw launch command to use an unverified adapter" >&2; exit 1; }
     ;;
   *)
     HARNESS=$ARG3

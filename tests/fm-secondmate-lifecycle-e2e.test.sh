@@ -16,8 +16,10 @@
 #   - remote-backed projects are cloned with their origin URL preserved
 #   - a no-mistakes project is initialized (init + doctor) in the NEW subhome clone
 #     and the parent project clone is never mutated (no write through a project)
-#   - spawn meta records kind=secondmate, home=, and the project list; launch runs
-#     in the subhome with the persistent charter and cleared operational overrides
+#   - seed copies the parent worker-harness override into the subhome
+#   - spawn meta records kind=secondmate, home=, the project list, and the separate
+#     secondmate supervisor harness; launch runs in the subhome with the persistent
+#     charter and cleared operational overrides
 #   - a bare `fm-<id>` send targets the window recorded in THIS home's meta
 #   - backlog items move verbatim into the subhome and leave the main backlog
 #   - recovery respawns from the durable registry + persistent home
@@ -40,7 +42,9 @@ BETA_ORIGIN=
 
 # --- shared world + seed ----------------------------------------------------
 setup_world() {
-  mkdir -p "$HOME_DIR/projects" "$HOME_DIR/data" "$HOME_DIR/state"
+  mkdir -p "$HOME_DIR/projects" "$HOME_DIR/data" "$HOME_DIR/state" "$HOME_DIR/config" "$HOME_DIR/parent-config"
+  printf 'codex\n' > "$HOME_DIR/config/crew-harness"
+  printf 'claude\n' > "$HOME_DIR/parent-config/secondmate-harness"
   fm_git_init_commit "$HOME_DIR/projects/alpha"
   fm_git_init_commit "$HOME_DIR/projects/beta"
   fm_git_init_commit "$HOME_DIR/projects/gamma"
@@ -78,6 +82,9 @@ phase_seed() {
   assert_present "$SUB/.fm-secondmate-home" "seed did not mark the subhome"
   assert_present "$SUB/data/charter.md" "seed did not copy the charter into the subhome"
   assert_grep 'customer onboarding charter' "$SUB/data/charter.md" "charter body was not copied verbatim"
+  assert_present "$SUB/config/crew-harness" "seed did not copy the worker harness policy into the subhome"
+  [ "$(cat "$SUB/config/crew-harness")" = "codex" ] \
+    || fail "subhome worker harness policy should inherit codex from the parent home"
 
   # Projects cloned; remote-backed origins preserved.
   assert_present "$SUB/projects/alpha/.git" "alpha was not cloned"
@@ -112,12 +119,14 @@ phase_seed() {
 phase_spawn() {
   : > "$LOG"
   PATH="$FAKEBIN:$PATH" FM_HOME="$HOME_DIR" FM_CONFIG_OVERRIDE="$HOME_DIR/parent-config" \
+    FM_SPAWN_NO_GUARD=1 \
     FM_FAKE_TMUX_LOG="$LOG" FM_FAKE_TMUX_CAPTURE="$PANE" \
-    "$ROOT/bin/fm-spawn.sh" design "$SUB" codex --secondmate >/dev/null \
+    "$ROOT/bin/fm-spawn.sh" design "$SUB" --secondmate >/dev/null \
     || fail "secondmate spawn failed"
 
   local meta="$HOME_DIR/state/design.meta"
   assert_grep 'kind=secondmate' "$meta" "spawn meta did not record kind=secondmate"
+  assert_grep 'harness=claude' "$meta" "spawn meta did not record the secondmate supervisor harness"
   assert_grep "home=$SUB_ABS" "$meta" "spawn meta did not record the subhome"
   assert_grep 'projects=alpha, beta, gamma' "$meta" "spawn meta did not record the project list"
   # Launch ran in the subhome, with the persistent charter and cleared overrides,
@@ -126,10 +135,25 @@ phase_spawn() {
   assert_grep 'FM_ROOT_OVERRIDE= FM_STATE_OVERRIDE= FM_DATA_OVERRIDE= FM_PROJECTS_OVERRIDE=' "$LOG" "launch did not clear operational overrides"
   assert_grep 'FM_CONFIG_OVERRIDE=' "$LOG" "launch did not clear the config override"
   assert_grep "$SUB_ABS/data/charter.md" "$LOG" "launch did not use the persistent charter"
-  assert_no_grep 'notify=' "$LOG" "secondmate codex launch included the parent turn-end notify hook"
-  assert_no_grep 'turn-ended' "$LOG" "secondmate codex launch referenced a parent turn-ended signal"
+  assert_grep 'claude --dangerously-skip-permissions' "$LOG" "secondmate launch did not use the configured supervisor harness"
+  assert_no_grep 'codex --dangerously-bypass-approvals-and-sandbox' "$LOG" "secondmate launch used the worker harness instead of the supervisor harness"
+  assert_no_grep 'notify=' "$LOG" "secondmate launch included a parent turn-end notify hook"
+  assert_no_grep 'turn-ended' "$LOG" "secondmate launch referenced a parent turn-ended signal"
   assert_no_grep 'treehouse get' "$LOG" "secondmate spawn ran a project treehouse get"
   pass "spawn: launches in the subhome with persistent charter, records routing meta"
+}
+
+phase_respawn_preserves_recorded_harness() {
+  : > "$LOG"
+  PATH="$FAKEBIN:$PATH" FM_HOME="$HOME_DIR" FM_CONFIG_OVERRIDE="$HOME_DIR/parent-config" \
+    FM_SPAWN_NO_GUARD=1 \
+    FM_FAKE_TMUX_LOG="$LOG" FM_FAKE_TMUX_CAPTURE="$PANE" \
+    "$ROOT/bin/fm-spawn.sh" design --secondmate >/dev/null \
+    || fail "secondmate respawn from existing meta failed"
+  local meta="$HOME_DIR/state/design.meta"
+  assert_grep 'harness=claude' "$meta" "respawn did not preserve the recorded secondmate harness"
+  assert_grep 'claude --dangerously-skip-permissions' "$LOG" "respawn did not use the recorded supervisor harness"
+  pass "respawn: existing secondmate meta preserves the supervisor harness"
 }
 
 phase_send() {
@@ -191,7 +215,8 @@ phase_recovery() {
   # Simulate a restart: drop the live meta, then respawn from the registry +
   # persistent home (no explicit home argument).
   rm -f "$HOME_DIR/state/design.meta"
-  PATH="$FAKEBIN:$PATH" FM_HOME="$HOME_DIR" FM_FAKE_TMUX_LOG="$LOG" FM_FAKE_TMUX_CAPTURE="$PANE" \
+  PATH="$FAKEBIN:$PATH" FM_HOME="$HOME_DIR" FM_SPAWN_NO_GUARD=1 \
+    FM_FAKE_TMUX_LOG="$LOG" FM_FAKE_TMUX_CAPTURE="$PANE" \
     "$ROOT/bin/fm-spawn.sh" design "echo relaunch" --secondmate >/dev/null 2>&1 \
     || fail "recovery respawn failed"
   local meta="$HOME_DIR/state/design.meta"
@@ -217,6 +242,7 @@ phase_teardown() {
 setup_world
 phase_seed
 phase_spawn
+phase_respawn_preserves_recorded_harness
 phase_send
 phase_handoff
 phase_recovery

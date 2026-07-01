@@ -30,6 +30,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
+CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 PROJECTS="${FM_PROJECTS_OVERRIDE:-$FM_HOME/projects}"
 REG="$DATA/secondmates.md"
 SUB_HOME_MARKER=".fm-secondmate-home"
@@ -378,7 +379,7 @@ validate_operational_dirs() {
 validate_seed_leaf_files() {
   local home=$1 label path abs_home abs_path
   abs_home=$(resolved_path "$home")
-  for label in "data/projects.md" "data/charter.md" "$SUB_HOME_MARKER"; do
+  for label in "data/projects.md" "data/charter.md" "config/crew-harness" "config/secondmate-harness" "$SUB_HOME_MARKER"; do
     path="$home/$label"
     if [ -L "$path" ]; then
       echo "error: secondmate leaf file must not be a symlink: $path" >&2
@@ -586,6 +587,7 @@ SEED_PARENT_BRIEF_CREATED=0
 SEED_PARENT_BRIEF_DIR_CREATED=0
 SEED_SUB_REG_EXISTED=0
 SEED_CHARTER_EXISTED=0
+SEED_SUB_CREW_HARNESS_EXISTED=0
 SEED_MARKER_EXISTED=0
 
 restore_seed_file() {
@@ -708,6 +710,7 @@ seed_rollback() {
         restore_seed_file "$SEED_MARKER_EXISTED" "$SEED_BACKUP_DIR/marker" "$SEED_HOME/$SUB_HOME_MARKER"
         restore_seed_file "$SEED_CHARTER_EXISTED" "$SEED_BACKUP_DIR/charter.md" "$SEED_HOME/data/charter.md"
         restore_seed_file "$SEED_SUB_REG_EXISTED" "$SEED_BACKUP_DIR/sub-projects.md" "$SEED_HOME/data/projects.md"
+        restore_seed_file "$SEED_SUB_CREW_HARNESS_EXISTED" "$SEED_BACKUP_DIR/crew-harness" "$SEED_HOME/config/crew-harness"
       fi
     fi
   fi
@@ -784,6 +787,17 @@ initialize_no_mistakes_project() {
   }
 }
 
+sync_worker_harness_policy() {
+  local home=$1 configured
+  [ -f "$CONFIG/crew-harness" ] || return 0
+  configured=$(tr -d '[:space:]' < "$CONFIG/crew-harness" || true)
+  [ -n "$configured" ] || return 0
+  [ "$configured" = default ] && return 0
+  [ -f "$home/config/crew-harness" ] && return 0
+  mkdir -p "$home/config"
+  printf '%s\n' "$configured" > "$home/config/crew-harness"
+}
+
 write_registry() {
   local id=$1 home=$2 projects_csv=$3 brief=$4 scope summary tmp today
   mkdir -p "$DATA"
@@ -827,6 +841,7 @@ seed_home() {
   SEED_PARENT_BRIEF_DIR_CREATED=0
   SEED_SUB_REG_EXISTED=0
   SEED_CHARTER_EXISTED=0
+  SEED_SUB_CREW_HARNESS_EXISTED=0
   SEED_MARKER_EXISTED=0
   trap seed_rollback EXIT
   if [ -f "$REG" ]; then
@@ -860,6 +875,10 @@ seed_home() {
   if [ -f "$home/data/charter.md" ]; then
     SEED_CHARTER_EXISTED=1
     cp "$home/data/charter.md" "$SEED_BACKUP_DIR/charter.md"
+  fi
+  if [ -f "$home/config/crew-harness" ]; then
+    SEED_SUB_CREW_HARNESS_EXISTED=1
+    cp "$home/config/crew-harness" "$SEED_BACKUP_DIR/crew-harness"
   fi
   if [ -f "$home/$SUB_HOME_MARKER" ]; then
     SEED_MARKER_EXISTED=1
@@ -907,6 +926,7 @@ seed_home() {
   done
 
   cp "$SEED_PARENT_BRIEF" "$home/data/charter.md"
+  sync_worker_harness_policy "$home"
 
   projects_csv=$(join_projects "$@")
   printf '%s\n' "$id" > "$home/$SUB_HOME_MARKER"

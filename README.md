@@ -82,6 +82,7 @@ Then just talk:
 Run it inside tmux, zellij, or Herdr for the best experience: launching your harness from inside a multiplexer puts every crewmate in your own session, one per task, where you can watch the crew work in real time or type into any surface to intervene.
 Outside a multiplexer, tmux crewmates land in a detached `firstmate` session you can attach to.
 tmux is the default; set `config/multiplexer` to `zellij` or `herdr` to use that backend for new crewmate sessions (absent or `default` keeps tmux). Herdr mode expects firstmate itself to be running inside Herdr.
+Harness choice is separate from the harness running firstmate: set `config/crew-harness` for worker agents and `config/secondmate-harness` for persistent secondmate supervisors.
 
 ## How It Works
 

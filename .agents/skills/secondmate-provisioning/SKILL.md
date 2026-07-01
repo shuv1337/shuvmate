@@ -48,6 +48,8 @@ The slot stays reserved across restarts until the lease is released.
 Release happens only on explicit retirement or seed rollback, never on routine restart or recovery.
 
 `bin/fm-home-seed.sh` copies the charter into the secondmate home as `data/charter.md`.
+If the parent home has a non-default `config/crew-harness`, seeding copies that worker harness policy into the secondmate home unless the home already has its own `config/crew-harness`.
+This is separate from the secondmate supervisor harness used to launch the persistent secondmate pane.
 `bin/fm-spawn.sh --secondmate` launches it through the same launch-template path.
 Before launch, `fm-spawn.sh --secondmate` locally fast-forwards the home to the primary firstmate checkout's current default-branch commit when it is safe; dirty, diverged, or in-flight homes launch unchanged with a warning.
 `bin/fm-home-seed.sh` refuses to copy a missing or placeholder charter.

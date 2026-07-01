@@ -101,6 +101,30 @@ EOF
   pass "seed allows overlapping project clone lists and drops the owns/owner routing"
 }
 
+test_home_seed_preserves_existing_worker_harness_policy() {
+  local home subhome
+  home="$TMP_ROOT/worker-policy-main"
+  subhome="$TMP_ROOT/worker-policy-subhome"
+  mkdir -p "$home/projects" "$home/data" "$home/config"
+  printf 'codex\n' > "$home/config/crew-harness"
+  fm_git_init_commit "$home/projects/alpha"
+  fm_git_add_origin "$home/projects/alpha" "$TMP_ROOT/remotes/worker-policy-alpha.git"
+  printf '%s\n' '- alpha [direct-PR] - alpha project (added 2026-06-22)' > "$home/data/projects.md"
+
+  git clone --quiet "$ROOT" "$subhome"
+  mkdir -p "$subhome/config"
+  printf 'claude\n' > "$subhome/config/crew-harness"
+
+  FM_HOME="$home" FM_SECONDMATE_CHARTER='worker policy domain' \
+    FM_SECONDMATE_SCOPE='worker policy domain' \
+    "$ROOT/bin/fm-home-seed.sh" policy "$subhome" alpha >/dev/null \
+    || fail "seed failed for existing subhome with worker harness policy"
+
+  [ "$(cat "$subhome/config/crew-harness")" = "claude" ] \
+    || fail "seed overwrote the existing secondmate worker harness policy"
+  pass "home seeding preserves an existing secondmate worker harness policy"
+}
+
 test_home_seed_validate_rejects_duplicate_homes() {
   local home subhome subhome_abs err
   home="$TMP_ROOT/duplicate-home"
@@ -1729,6 +1753,7 @@ EOF
 test_fm_home_parameterization
 test_lock_status_is_per_home
 test_seed_allows_overlapping_clones_and_drops_owner
+test_home_seed_preserves_existing_worker_harness_policy
 test_home_seed_validate_rejects_duplicate_homes
 test_home_seed_validate_rejects_duplicate_ids
 test_home_seed_validate_rejects_nested_homes

@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Detect the agent harness this process tree runs on.
-# Usage: fm-harness.sh         print own harness: claude|codex|opencode|pi|unknown
-#        fm-harness.sh crew    print the effective crewmate harness
-#                              (config/crew-harness; "default" resolves to own)
+# Usage: fm-harness.sh              print own harness: claude|codex|opencode|pi|unknown
+#        fm-harness.sh crew         print the effective worker harness
+#                                   (config/crew-harness; "default" resolves to own)
+#        fm-harness.sh secondmate   print the effective secondmate supervisor harness
+#                                   (config/secondmate-harness; "default" resolves to own)
 # Detection layers: verified environment markers first, then process ancestry.
 # Record each newly verified env marker here.
 set -u
@@ -43,10 +45,22 @@ detect_own() {
   echo unknown
 }
 
-if [ "${1:-}" = "crew" ]; then
-  crew=
-  [ -f "$CONFIG/crew-harness" ] && crew=$(tr -d '[:space:]' < "$CONFIG/crew-harness" || true)
-  if [ -z "$crew" ] || [ "$crew" = "default" ]; then detect_own; else echo "$crew"; fi
-else
-  detect_own
-fi
+resolve_configured_harness() {
+  local file=$1 configured=
+  [ -f "$CONFIG/$file" ] && configured=$(tr -d '[:space:]' < "$CONFIG/$file" || true)
+  if [ -z "$configured" ] || [ "$configured" = "default" ]; then
+    detect_own
+  else
+    echo "$configured"
+  fi
+}
+
+case "${1:-}" in
+  ''|own) detect_own ;;
+  crew) resolve_configured_harness crew-harness ;;
+  secondmate) resolve_configured_harness secondmate-harness ;;
+  *)
+    echo "usage: fm-harness.sh [own|crew|secondmate]" >&2
+    exit 2
+    ;;
+esac
