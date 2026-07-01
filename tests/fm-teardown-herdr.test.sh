@@ -32,6 +32,9 @@ case "${1:-} ${2:-}" in
     git -C "$FM_FAKE_HERDR_PROJECT" worktree remove --force "$FM_FAKE_HERDR_WT" >/dev/null 2>&1 || true
     printf '%s\n' '{"result":{"type":"ok"}}'
     ;;
+  "tab close")
+    printf '%s\n' '{"result":{"type":"ok"}}'
+    ;;
   *)
     printf 'unexpected herdr call: %s\n' "$*" >&2
     exit 2
@@ -78,6 +81,11 @@ test_teardown_removes_herdr_native_worktree() {
   assert_contains "$out" "teardown herdr-teardown complete" "teardown did not report completion"
   assert_contains "$(cat "$log")" "worktree remove --workspace w9 --force --json" "teardown did not remove the native Herdr worktree"
   assert_not_contains "$(cat "$log")" "treehouse" "herdr native teardown should not call treehouse"
+  # Regression: remove-worktree only pools/resets the linked worktree; it is not
+  # guaranteed to also close the herdr tab (and the agent process inside it), so
+  # teardown must unconditionally close the tab through the same kill path used
+  # by tmux/zellij, instead of assuming remove-worktree already did it.
+  assert_contains "$(cat "$log")" "tab close w9:t1" "teardown did not close the herdr tab after removing the worktree"
   [ ! -e "$meta" ] || fail "teardown did not remove meta"
   [ ! -d "$wt" ] || fail "teardown did not remove native worktree path"
   pass "fm-teardown removes Herdr-native worktrees through Herdr"

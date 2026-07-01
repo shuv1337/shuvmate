@@ -24,6 +24,11 @@
 #   herdr pane read <pane> --source recent-unwrapped --lines N  bounded capture
 #   herdr tab close <tab>                                       scoped teardown
 #
+# `herdr worktree remove` is not reliably guaranteed to also close the tab it
+# was opened in (seen leaking live: tab + agent process left running after a
+# "successful" teardown), so callers must not assume it did - always follow up
+# with an explicit `herdr tab close` (fm-teardown.sh does this unconditionally).
+#
 # Usage:
 #   fm-mux.sh current
 #   fm-mux.sh configured
@@ -236,12 +241,14 @@ herdr_project_workspace_for_cwd() {
 
 herdr_tab_id_by_name() {
   local ws=$1 name=$2
-  herdr tab list --workspace "$ws" | HERDR_TAB_NAME=$name json_get '(data.result.tabs || []).find(t => t.label === process.env.HERDR_TAB_NAME)?.tab_id'
+  herdr tab list --workspace "$ws" 2>/dev/null \
+    | HERDR_TAB_NAME=$name json_get '(data.result.tabs || []).find(t => t.label === process.env.HERDR_TAB_NAME)?.tab_id' 2>/dev/null
 }
 
 herdr_root_pane_for_tab() {
   local ws=$1 tab=$2
-  herdr pane list --workspace "$ws" | HERDR_TAB_ID=$tab json_get '(data.result.panes || []).find(p => p.tab_id === process.env.HERDR_TAB_ID)?.pane_id'
+  herdr pane list --workspace "$ws" 2>/dev/null \
+    | HERDR_TAB_ID=$tab json_get '(data.result.panes || []).find(p => p.tab_id === process.env.HERDR_TAB_ID)?.pane_id' 2>/dev/null
 }
 
 herdr_parse_target() {

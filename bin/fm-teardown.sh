@@ -62,7 +62,6 @@ KIND=$(grep '^kind=' "$META" | cut -d= -f2- || true)
 [ -n "$KIND" ] || KIND=ship
 MODE=$(grep '^mode=' "$META" | cut -d= -f2- || true)
 [ -n "$MODE" ] || MODE=no-mistakes
-REMOVED_HERDR_WORKTREE=0
 
 default_branch() {
   local ref branch
@@ -574,8 +573,11 @@ if [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
   rm -f "$WT/.claude/settings.local.json" "$WT/.opencode/plugins/fm-turn-end.js"
   case "$TARGET" in
     herdr:*)
+      # remove-worktree pools/resets the linked worktree, but is not reliably
+      # guaranteed to also close its herdr tab (seen leaking live: tab + agent
+      # process left running after a "successful" teardown), so kill still
+      # runs unconditionally below as a belt-and-suspenders close.
       "$MUX" remove-worktree "$TARGET" "$WT"
-      REMOVED_HERDR_WORKTREE=1
       ;;
     *)
       # Kills remaining processes in the worktree (including the agent), resets,
@@ -586,9 +588,7 @@ if [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
   esac
 fi
 
-if [ "$REMOVED_HERDR_WORKTREE" != 1 ]; then
-  "$MUX" kill "$TARGET"
-fi
+"$MUX" kill "$TARGET"
 if [ "$KIND" = secondmate ]; then
   [ -n "$HOME_PATH" ] || HOME_PATH=$WT
   remove_firstmate_home "$HOME_PATH" "secondmate home" "$ID"
