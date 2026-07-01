@@ -13,6 +13,9 @@
 #
 # Verified herdr contract (2026-06-30):
 #   herdr pane current --current                                current pane metadata
+#   herdr workspace create --cwd ... --label ...                project workspace
+#   herdr worktree create --workspace <w> --label ... --json    native linked worktree workspace
+#   herdr worktree remove --workspace <w> --force --json        native linked worktree teardown
 #   herdr tab create --workspace <w> --cwd ... --label ...      tab + root pane
 #   herdr tab list --workspace <w>                              tab metadata
 #   herdr pane list [--workspace <w>]                           pane metadata
@@ -26,6 +29,7 @@
 #   fm-mux.sh configured
 #   fm-mux.sh ensure-session <mux>
 #   fm-mux.sh create <mux> <task-id> <cwd>
+#   fm-mux.sh create-worktree <mux> <task-id> <project-cwd>
 #   fm-mux.sh list [tmux|zellij|herdr|all]
 #   fm-mux.sh resolve <target-or-name> [<mux>]
 #   fm-mux.sh resolve-task <fm-name-or-target>
@@ -33,6 +37,7 @@
 #   fm-mux.sh send-key <target> <key>
 #   fm-mux.sh capture <target> <lines>
 #   fm-mux.sh kill <target>
+#   fm-mux.sh remove-worktree <target> [worktree-path]
 #   fm-mux.sh --help
 set -eu
 
@@ -197,6 +202,38 @@ herdr_current_workspace() {
   herdr pane current --current | json_get 'data.result.pane.workspace_id'
 }
 
+herdr_workspace_id_by_ref() {
+  local ref=$1
+  herdr workspace list 2>/dev/null \
+    | HERDR_WORKSPACE_REF=$ref json_get '(data.result.workspaces || []).find(w => w.workspace_id === process.env.HERDR_WORKSPACE_REF || w.label === process.env.HERDR_WORKSPACE_REF)?.workspace_id'
+}
+
+herdr_workspace_id_for_worktree_path() {
+  local path=$1
+  [ -n "$path" ] || return 1
+  herdr worktree list --cwd "$path" --json 2>/dev/null \
+    | HERDR_WORKTREE_PATH=$path json_get '(data.result.worktrees || []).find(w => w.path === process.env.HERDR_WORKTREE_PATH)?.open_workspace_id'
+}
+
+herdr_project_workspace_for_cwd() {
+  local cwd=$1 ws label out
+  ws=$(herdr worktree list --cwd "$cwd" --json 2>/dev/null \
+    | json_get 'data.result?.source?.source_workspace_id' 2>/dev/null || true)
+  if [ -n "$ws" ]; then
+    printf '%s' "$ws"
+    return 0
+  fi
+  ws=$(herdr workspace list 2>/dev/null \
+    | HERDR_PROJECT_CWD=$cwd json_get '(data.result.workspaces || []).find(w => w.worktree && (w.worktree.checkout_path === process.env.HERDR_PROJECT_CWD || w.worktree.repo_root === process.env.HERDR_PROJECT_CWD))?.workspace_id' 2>/dev/null || true)
+  if [ -n "$ws" ]; then
+    printf '%s' "$ws"
+    return 0
+  fi
+  label=$(basename "$cwd")
+  out=$(herdr workspace create --cwd "$cwd" --label "$label" --no-focus)
+  printf '%s' "$out" | json_get 'data.result.workspace.workspace_id'
+}
+
 herdr_tab_id_by_name() {
   local ws=$1 name=$2
   herdr tab list --workspace "$ws" | HERDR_TAB_NAME=$name json_get '(data.result.tabs || []).find(t => t.label === process.env.HERDR_TAB_NAME)?.tab_id'
@@ -208,22 +245,24 @@ herdr_root_pane_for_tab() {
 }
 
 herdr_parse_target() {
-  local rest=${1#herdr:} right tab pane
-  HMUX_WS=${rest%%/*}
+  local rest=${1#herdr:} ws_ref right tab pane
+  ws_ref=${rest%%/*}
   right=${rest#*/}
+  HMUX_WS=$(herdr_workspace_id_by_ref "$ws_ref" 2>/dev/null || true)
+  [ -n "$HMUX_WS" ] || HMUX_WS=$ws_ref
   case "$right" in
-    fm-*)
+    */*)
+      # raw form: herdr:<workspace-id-or-label>/<tab_id>/<pane_id>.
+      HMUX_TAB=${right%%/*}
+      HMUX_PANE=${right#*/}
+      ;;
+    *)
       tab=$(herdr_tab_id_by_name "$HMUX_WS" "$right") || true
       [ -n "$tab" ] || return 1
       pane=$(herdr_root_pane_for_tab "$HMUX_WS" "$tab") || true
       [ -n "$pane" ] || return 1
       HMUX_TAB=$tab
       HMUX_PANE=$pane
-      ;;
-    *)
-      # raw form: herdr:<ws>/<tab_id>/<pane_id>; HMUX_WS is already split off above.
-      HMUX_TAB=${right%%/*}
-      HMUX_PANE=${right#*/}
       ;;
   esac
 }
@@ -312,6 +351,37 @@ cmd_create() {
   printf '%s' "$target"
 }
 
+cmd_create_worktree() {
+  local mux=$1 id=$2 cwd=$3 name project_ws out crew_ws wt target branch
+  name="fm-$id"
+  case "$mux" in
+    herdr)
+      command -v herdr >/dev/null || die "herdr not installed"
+      [ -n "${HERDR_ENV:-}" ] || die "herdr selected in config/multiplexer but HERDR_ENV is not set"
+      if [ -n "$(herdr_workspace_id_by_ref "$name" 2>/dev/null || true)" ]; then
+        die "workspace $name already exists"
+      fi
+      project_ws=$(herdr_project_workspace_for_cwd "$cwd")
+      [ -n "$project_ws" ] || die "could not resolve or create herdr project workspace for $cwd"
+      out=$(herdr worktree create --workspace "$project_ws" --label "$name" --no-focus --json)
+      crew_ws=$(printf '%s' "$out" | json_get 'data.result.workspace.workspace_id')
+      wt=$(printf '%s' "$out" | json_get 'data.result.worktree.path')
+      branch=$(printf '%s' "$out" | json_get 'data.result.worktree.branch' 2>/dev/null || true)
+      [ -n "$crew_ws" ] || die "could not resolve herdr crew workspace for $name"
+      [ -n "$wt" ] || die "could not resolve herdr worktree path for $name"
+      # Keep firstmate's existing launch contract: workers start detached in an
+      # isolated checkout, and the brief tells them when to create fm/<id>.
+      if [ -n "$branch" ] && [ "$branch" != "HEAD" ]; then
+        git -C "$wt" checkout --detach -q
+        git -C "$wt" branch -D "$branch" >/dev/null 2>&1 || true
+      fi
+      target="herdr:$name/1"
+      printf 'target=%s\nworktree=%s\n' "$target" "$wt"
+      ;;
+    *) die "create-worktree is only supported for herdr" ;;
+  esac
+}
+
 list_tmux_targets() {
   # Match the window field (always last), not a fm-* session name: the tmux:
   # prefix means a bare ':fm-' would also match sessions starting with fm-.
@@ -346,7 +416,10 @@ list_herdr_targets() {
   local ws name target
   command -v herdr >/dev/null || return 0
   [ -n "${HERDR_ENV:-}" ] || return 0
-  herdr workspace list 2>/dev/null | json_get '(data.result.workspaces || []).map(w => w.workspace_id).join("\n")' \
+  {
+    herdr workspace list 2>/dev/null \
+      | json_get '(data.result.workspaces || []).filter(w => /^fm-/.test(w.label || "")).map(w => "herdr:" + w.label + "/1").join("\n")'
+    herdr workspace list 2>/dev/null | json_get '(data.result.workspaces || []).map(w => w.workspace_id).join("\n")' \
     | while IFS= read -r ws; do
       [ -n "$ws" ] || continue
       herdr tab list --workspace "$ws" 2>/dev/null \
@@ -357,6 +430,7 @@ list_herdr_targets() {
           [ -n "$target" ] && printf '%s\n' "$target"
         done
     done
+  } | awk 'NF && !seen[$0]++'
 }
 
 cmd_list() {
@@ -398,6 +472,11 @@ resolve_zellij_name() {
 
 resolve_herdr_name() {
   local name=$1 ws target
+  ws=$(herdr_workspace_id_by_ref "$name" 2>/dev/null || true)
+  if [ -n "$ws" ]; then
+    printf 'herdr:%s/1' "$name"
+    return 0
+  fi
   while IFS= read -r ws; do
     [ -n "$ws" ] || continue
     target=$(herdr_target_for_tab "$ws" "$name" 2>/dev/null || true)
@@ -613,6 +692,17 @@ cmd_kill() {
   esac
 }
 
+cmd_remove_worktree() {
+  local target=$1 wt=${2:-}
+  if ! herdr_parse_target "$target"; then
+    if [ -n "$wt" ]; then
+      HMUX_WS=$(herdr_workspace_id_for_worktree_path "$wt" 2>/dev/null || true)
+    fi
+  fi
+  [ -n "${HMUX_WS:-}" ] || return 0
+  herdr worktree remove --workspace "$HMUX_WS" --force --json >/dev/null 2>&1 || true
+}
+
 main() {
   local cmd=${1:-}
   case "$cmd" in
@@ -626,6 +716,10 @@ main() {
     create)
       [ $# -ge 4 ] || die "usage: fm-mux.sh create <mux> <task-id> <cwd>"
       cmd_create "$2" "$3" "$4"
+      ;;
+    create-worktree)
+      [ $# -ge 4 ] || die "usage: fm-mux.sh create-worktree <mux> <task-id> <project-cwd>"
+      cmd_create_worktree "$2" "$3" "$4"
       ;;
     list)
       cmd_list "${2:-all}"
@@ -653,6 +747,10 @@ main() {
     kill)
       [ $# -ge 2 ] || die "usage: fm-mux.sh kill <target>"
       cmd_kill "$2"
+      ;;
+    remove-worktree)
+      [ $# -ge 2 ] || die "usage: fm-mux.sh remove-worktree <target> [worktree-path]"
+      cmd_remove_worktree "$2" "${3:-}"
       ;;
     *)
       die "unknown subcommand: $cmd (try --help)"

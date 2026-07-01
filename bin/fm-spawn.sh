@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Spawn a direct report: a crewmate in a treehouse worktree, or a secondmate in
+# Spawn a direct report: a crewmate in an isolated worktree, or a secondmate in
 # its isolated firstmate home. The task surface is a tmux window, zellij tab, or
-# herdr tab, created and driven through bin/fm-mux.sh.
+# Herdr workspace/tab, created and driven through bin/fm-mux.sh. Herdr crew
+# spawns use Herdr-native linked worktrees; tmux/zellij crew spawns continue to
+# enter treehouse worktrees from the created task surface.
 # Usage: fm-spawn.sh <task-id> <project-dir> [harness|launch-command] [--scout]
 #        fm-spawn.sh <task-id> [<firstmate-home>] [harness|launch-command] --secondmate
 #   With no harness arg, the harness comes from fm-harness.sh crew (config/crew-harness,
@@ -358,7 +360,15 @@ case "$MUX_NAME" in
 esac
 
 "$MUX" ensure-session "$MUX_NAME"
-TARGET=$("$MUX" create "$MUX_NAME" "$ID" "$PROJ_ABS")
+if [ "$MUX_NAME" = herdr ] && [ "$KIND" != secondmate ]; then
+  CREATE_OUT=$("$MUX" create-worktree "$MUX_NAME" "$ID" "$PROJ_ABS")
+  TARGET=$(printf '%s\n' "$CREATE_OUT" | sed -n 's/^target=//p' | head -1)
+  WT=$(printf '%s\n' "$CREATE_OUT" | sed -n 's/^worktree=//p' | head -1)
+  [ -n "$TARGET" ] || { echo "error: herdr worktree create did not report a target" >&2; exit 1; }
+  [ -n "$WT" ] || { echo "error: herdr worktree create did not report a worktree" >&2; exit 1; }
+else
+  TARGET=$("$MUX" create "$MUX_NAME" "$ID" "$PROJ_ABS")
+fi
 W="fm-$ID"
 case "$TARGET" in
   tmux:*) T="${TARGET#tmux:}" ;;
@@ -367,56 +377,57 @@ case "$TARGET" in
   *) echo "error: unexpected target from fm-mux create: $TARGET" >&2; exit 1 ;;
 esac
 
-# For ship/scout tasks, enter the treehouse worktree. The task surface (tmux
-# window, zellij tab, or herdr tab) was already created by `"$MUX" create` above;
-# we drive it through the mux helper so this works on every backend.
+# For ship/scout tasks on tmux/zellij, enter the treehouse worktree. Herdr
+# ship/scout tasks already have WT from `create-worktree` above.
 if [ "$KIND" != secondmate ]; then
-  "$MUX" send-text "$TARGET" 'treehouse get'
-  "$MUX" send-key "$TARGET" Enter
+  if [ "$MUX_NAME" != herdr ]; then
+    "$MUX" send-text "$TARGET" 'treehouse get'
+    "$MUX" send-key "$TARGET" Enter
 
-  WT=""
-  case "$MUX_NAME" in
-    tmux)
-      # tmux can report the pane's live cwd, so wait for it to move from the
-      # project to the worktree subshell that `treehouse get` opens.
-      for _ in $(seq 1 60); do
-        p=$(tmux display-message -p -t "$T" '#{pane_current_path}' 2>/dev/null || true)
-        if [ -n "$p" ] && [ "$p" != "$PROJ_ABS" ]; then
-          WT="$p"
-          break
-        fi
-        sleep 1
-      done
-      ;;
-    *)
-      # zellij has no pane-cwd query, so use a portable ready-file probe: ask the
-      # worktree subshell to write its cwd to a ready-file. The first probe can
-      # land before the subshell is up (consumed by the outer shell, writing the
-      # project dir, which the != guard rejects), so re-send a few times early
-      # until a worktree path appears.
-      READY="$STATE/$ID.worktree-ready"
-      rm -f "$READY"
-      sent=0
-      for _ in $(seq 1 60); do
-        if [ -f "$READY" ]; then
-          WT=$(tr -d '[:space:]' < "$READY" || true)
-          if [ -n "$WT" ] && [ "$WT" != "$PROJ_ABS" ]; then
+    WT=""
+    case "$MUX_NAME" in
+      tmux)
+        # tmux can report the pane's live cwd, so wait for it to move from the
+        # project to the worktree subshell that `treehouse get` opens.
+        for _ in $(seq 1 60); do
+          p=$(tmux display-message -p -t "$T" '#{pane_current_path}' 2>/dev/null || true)
+          if [ -n "$p" ] && [ "$p" != "$PROJ_ABS" ]; then
+            WT="$p"
             break
           fi
-          WT=""
-        fi
-        if [ "$sent" -lt 5 ]; then
-          "$MUX" send-text "$TARGET" "pwd > '$READY'"
-          "$MUX" send-key "$TARGET" Enter
-          sent=$((sent + 1))
-        fi
-        sleep 1
-      done
-      ;;
-  esac
-  if [ -z "$WT" ]; then
-    echo "error: treehouse get did not enter a worktree within 60s; inspect surface $T" >&2
-    exit 1
+          sleep 1
+        done
+        ;;
+      *)
+        # zellij has no pane-cwd query, so use a portable ready-file probe: ask the
+        # worktree subshell to write its cwd to a ready-file. The first probe can
+        # land before the subshell is up (consumed by the outer shell, writing the
+        # project dir, which the != guard rejects), so re-send a few times early
+        # until a worktree path appears.
+        READY="$STATE/$ID.worktree-ready"
+        rm -f "$READY"
+        sent=0
+        for _ in $(seq 1 60); do
+          if [ -f "$READY" ]; then
+            WT=$(tr -d '[:space:]' < "$READY" || true)
+            if [ -n "$WT" ] && [ "$WT" != "$PROJ_ABS" ]; then
+              break
+            fi
+            WT=""
+          fi
+          if [ "$sent" -lt 5 ]; then
+            "$MUX" send-text "$TARGET" "pwd > '$READY'"
+            "$MUX" send-key "$TARGET" Enter
+            sent=$((sent + 1))
+          fi
+          sleep 1
+        done
+        ;;
+    esac
+    if [ -z "$WT" ]; then
+      echo "error: treehouse get did not enter a worktree within 60s; inspect surface $T" >&2
+      exit 1
+    fi
   fi
 
   # Isolation guard: refuse to launch unless WT is a genuine, ISOLATED worktree -
@@ -440,7 +451,7 @@ if [ "$KIND" != secondmate ]; then
     wt_top_real=
   fi
   if [ -z "$wt_real" ] || [ -z "$wt_top_real" ] || [ "$wt_real" != "$wt_top_real" ] || [ "$wt_real" = "$proj_real" ]; then
-    echo "error: treehouse get did not yield an isolated worktree (resolved '$WT'; worktree root '${wt_top:-none}'; primary '$PROJ_ABS'); refusing to launch to avoid tangling the primary checkout. Inspect surface $T" >&2
+    echo "error: spawn did not yield an isolated worktree (resolved '$WT'; worktree root '${wt_top:-none}'; primary '$PROJ_ABS'); refusing to launch to avoid tangling the primary checkout. Inspect surface $T" >&2
     exit 1
   fi
 fi

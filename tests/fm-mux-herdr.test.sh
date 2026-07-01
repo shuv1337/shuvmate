@@ -22,21 +22,41 @@ case "${1:-} ${2:-}" in
   "pane current")
     printf '%s\n' '{"result":{"pane":{"workspace_id":"w1","tab_id":"w1:t1","pane_id":"w1:p1"}}}'
     ;;
+  "worktree list")
+    printf '%s\n' '{"result":{"source":{"repo_key":"fake","repo_name":"repo","repo_root":"'"${FM_FAKE_HERDR_PROJECT:-/repo}"'","source_checkout_path":"'"${FM_FAKE_HERDR_PROJECT:-/repo}"'","source_workspace_id":"w1"},"worktrees":[]}}'
+    ;;
+  "worktree create")
+    git -C "$FM_FAKE_HERDR_PROJECT" worktree add --quiet -b worktree/fake "$FM_FAKE_HERDR_WT" >/dev/null
+    printf '%s\n' '{"result":{"root_pane":{"pane_id":"w9:p1","tab_id":"w9:t1","workspace_id":"w9","cwd":"'"$FM_FAKE_HERDR_WT"'"},"tab":{"tab_id":"w9:t1","label":"1","workspace_id":"w9"},"workspace":{"workspace_id":"w9","label":"fm-herdr-native","worktree":{"checkout_path":"'"$FM_FAKE_HERDR_WT"'","is_linked_worktree":true}},"worktree":{"path":"'"$FM_FAKE_HERDR_WT"'","branch":"worktree/fake","is_detached":false}}}'
+    ;;
+  "worktree remove")
+    printf '%s\n' '{"result":{"type":"ok"}}'
+    ;;
   "tab create")
     printf '%s\n' '{"result":{"tab":{"tab_id":"w1:t9","label":"fm-herdr-a","workspace_id":"w1"},"root_pane":{"pane_id":"w1:p9","tab_id":"w1:t9","workspace_id":"w1"}}}'
     ;;
   "tab list")
-    if grep -q '^tab create ' "$log" 2>/dev/null; then
+    if [ "${4:-}" = "w9" ]; then
+      printf '%s\n' '{"result":{"tabs":[{"tab_id":"w9:t1","label":"1","workspace_id":"w9"}]}}'
+    elif grep -q '^tab create ' "$log" 2>/dev/null; then
       printf '%s\n' '{"result":{"tabs":[{"tab_id":"w1:t10","label":"fm-herdr-a","workspace_id":"w1"}]}}'
     else
       printf '%s\n' '{"result":{"tabs":[]}}'
     fi
     ;;
   "pane list")
-    printf '%s\n' '{"result":{"panes":[{"pane_id":"w1:p10","tab_id":"w1:t10","workspace_id":"w1"}]}}'
+    if [ "${4:-}" = "w9" ]; then
+      printf '%s\n' '{"result":{"panes":[{"pane_id":"w9:p1","tab_id":"w9:t1","workspace_id":"w9"}]}}'
+    else
+      printf '%s\n' '{"result":{"panes":[{"pane_id":"w1:p10","tab_id":"w1:t10","workspace_id":"w1"}]}}'
+    fi
     ;;
   "workspace list")
-    printf '%s\n' '{"result":{"workspaces":[{"workspace_id":"w1"}]}}'
+    if grep -q '^worktree create ' "$log" 2>/dev/null; then
+      printf '%s\n' '{"result":{"workspaces":[{"workspace_id":"w1","label":"project"},{"workspace_id":"w9","label":"fm-herdr-native"}]}}'
+    else
+      printf '%s\n' '{"result":{"workspaces":[{"workspace_id":"w1","label":"project"}]}}'
+    fi
     ;;
   "pane get")
     printf '%s\n' '{"result":{"pane":{"pane_id":"w1:p9","agent_status":"idle"}}}'
@@ -100,6 +120,32 @@ test_herdr_backend_contract() {
   pass "fm-mux herdr backend creates, resolves, sends, captures, and closes native tabs"
 }
 
+test_herdr_create_worktree_uses_project_workspace() {
+  local case_dir fakebin home target out log project wt branch
+  case_dir="$TMP_ROOT/native-worktree"
+  mkdir -p "$case_dir/home/config"
+  printf '%s\n' herdr > "$case_dir/home/config/multiplexer"
+  project="$case_dir/project"
+  wt="$case_dir/wt"
+  fm_git_init_commit "$project"
+  fakebin=$(make_fake_herdr "$case_dir")
+  log="$case_dir/herdr.log"
+
+  out=$(PATH="$fakebin:$BASE_PATH" HERDR_ENV=1 FM_HOME="$case_dir/home" FM_FAKE_HERDR_LOG="$log" \
+    FM_FAKE_HERDR_PROJECT="$project" FM_FAKE_HERDR_WT="$wt" \
+    "$ROOT/bin/fm-mux.sh" create-worktree herdr herdr-native "$project")
+  target=$(printf '%s\n' "$out" | sed -n 's/^target=//p')
+  [ "$target" = "herdr:fm-herdr-native/1" ] || fail "unexpected native worktree target: $target"
+  assert_contains "$out" "worktree=$wt" "create-worktree did not report the native worktree path"
+  assert_contains "$(cat "$log")" "worktree list --cwd $project --json" "create-worktree did not resolve the project workspace from cwd"
+  assert_contains "$(cat "$log")" "worktree create --workspace w1 --label fm-herdr-native --no-focus --json" "create-worktree did not source from the project workspace"
+  branch=$(git -C "$wt" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+  [ -z "$branch" ] || fail "native worktree was not detached before launch: $branch"
+  git -C "$project" show-ref --verify --quiet refs/heads/worktree/fake \
+    && fail "temporary Herdr worktree branch was not deleted"
+  pass "fm-mux herdr create-worktree uses project workspace and preserves detached launch contract"
+}
+
 make_fake_herdr_no_tabs() {
   local dir=$1 fakebin log
   fakebin=$(fm_fakebin "$dir")
@@ -147,4 +193,5 @@ test_herdr_kill_already_gone_tab_is_idempotent() {
 }
 
 test_herdr_backend_contract
+test_herdr_create_worktree_uses_project_workspace
 test_herdr_kill_already_gone_tab_is_idempotent

@@ -148,6 +148,12 @@ herdr_tab_id_by_name() {
     | HERDR_TAB_NAME=$name herdr_json_get '(data.result.tabs || []).find(t => t.label === process.env.HERDR_TAB_NAME)?.tab_id' 2>/dev/null
 }
 
+herdr_workspace_id_by_ref() {
+  local ref=$1
+  herdr workspace list 2>/dev/null \
+    | HERDR_WORKSPACE_REF=$ref herdr_json_get '(data.result.workspaces || []).find(w => w.workspace_id === process.env.HERDR_WORKSPACE_REF || w.label === process.env.HERDR_WORKSPACE_REF)?.workspace_id' 2>/dev/null
+}
+
 herdr_root_pane_for_tab() {
   local ws=$1 tab=$2
   herdr pane list --workspace "$ws" 2>/dev/null \
@@ -155,19 +161,21 @@ herdr_root_pane_for_tab() {
 }
 
 herdr_pane_id_from_target() {
-  local rest=${1#herdr:} ws right tab pane
-  ws=${rest%%/*}
+  local rest=${1#herdr:} ws_ref ws right tab pane
+  ws_ref=${rest%%/*}
   right=${rest#*/}
+  ws=$(herdr_workspace_id_by_ref "$ws_ref" || true)
+  [ -n "$ws" ] || ws=$ws_ref
   case "$right" in
-    fm-*)
+    */*)
+      printf '%s' "${right#*/}"
+      ;;
+    *)
       tab=$(herdr_tab_id_by_name "$ws" "$right") || true
       [ -n "$tab" ] || return 1
       pane=$(herdr_root_pane_for_tab "$ws" "$tab") || true
       [ -n "$pane" ] || return 1
       printf '%s' "$pane"
-      ;;
-    *)
-      printf '%s' "$right"
       ;;
   esac
 }

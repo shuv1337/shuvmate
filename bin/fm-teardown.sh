@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Tear down a finished task: return the treehouse worktree or retire a
-# secondmate home, kill the task surface (tmux window, zellij tab, or herdr tab via
-# fm-mux.sh), clear volatile state, refresh/prune the project's clone for
+# Tear down a finished task: return the treehouse worktree, remove the Herdr-native
+# worktree, or retire a secondmate home; kill the task surface (tmux window,
+# zellij tab, or Herdr target via fm-mux.sh), clear volatile state, refresh/prune the project's clone for
 # PR-based ship tasks, then print a backlog-refresh reminder.
 # REFUSES if the worktree holds work that has not LANDED, because treehouse return
 # hard-resets the worktree and kills its processes. Work has landed when it is
@@ -62,6 +62,7 @@ KIND=$(grep '^kind=' "$META" | cut -d= -f2- || true)
 [ -n "$KIND" ] || KIND=ship
 MODE=$(grep '^mode=' "$META" | cut -d= -f2- || true)
 [ -n "$MODE" ] || MODE=no-mistakes
+REMOVED_HERDR_WORKTREE=0
 
 default_branch() {
   local ref branch
@@ -571,13 +572,23 @@ if [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
   fi
   # Remove our hook file so a reused pool worktree cannot fire signals for a dead task.
   rm -f "$WT/.claude/settings.local.json" "$WT/.opencode/plugins/fm-turn-end.js"
-  # Kills remaining processes in the worktree (including the agent), resets, returns
-  # to pool. treehouse resolves the pool from the working directory, so run it from
-  # the project.
-  ( cd "$PROJ" && treehouse return --force "$WT" )
+  case "$TARGET" in
+    herdr:*)
+      "$MUX" remove-worktree "$TARGET" "$WT"
+      REMOVED_HERDR_WORKTREE=1
+      ;;
+    *)
+      # Kills remaining processes in the worktree (including the agent), resets,
+      # returns to pool. treehouse resolves the pool from the working directory,
+      # so run it from the project.
+      ( cd "$PROJ" && treehouse return --force "$WT" )
+      ;;
+  esac
 fi
 
-"$MUX" kill "$TARGET"
+if [ "$REMOVED_HERDR_WORKTREE" != 1 ]; then
+  "$MUX" kill "$TARGET"
+fi
 if [ "$KIND" = secondmate ]; then
   [ -n "$HOME_PATH" ] || HOME_PATH=$WT
   remove_firstmate_home "$HOME_PATH" "secondmate home" "$ID"
