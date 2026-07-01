@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Multiplexer backend helper for firstmate supervision.
-# Encapsulates tmux and zellij command differences behind one surface.
+# Encapsulates tmux, zellij, and herdr command differences behind one surface.
 #
 # Verified zellij contract (0.45.0, 2026-06-18):
 #   zellij attach --create-background <session>     detached session, CLI-drivable
@@ -11,12 +11,22 @@
 #   zellij --session <s> action dump-screen -p <pane>           viewport to STDOUT
 #   zellij --session <s> action close-tab-by-id <tab-id>        scoped teardown
 #
+# Verified herdr contract (2026-06-30):
+#   herdr pane current --current                                current pane metadata
+#   herdr tab create --workspace <w> --cwd ... --label ...      tab + root pane
+#   herdr tab list --workspace <w>                              tab metadata
+#   herdr pane list [--workspace <w>]                           pane metadata
+#   herdr pane send-text <pane> '<text>'                        byte-faithful literal input
+#   herdr pane send-keys <pane> Enter                           submit
+#   herdr pane read <pane> --source recent-unwrapped --lines N  bounded capture
+#   herdr tab close <tab>                                       scoped teardown
+#
 # Usage:
 #   fm-mux.sh current
 #   fm-mux.sh configured
 #   fm-mux.sh ensure-session <mux>
 #   fm-mux.sh create <mux> <task-id> <cwd>
-#   fm-mux.sh list [tmux|zellij|all]
+#   fm-mux.sh list [tmux|zellij|herdr|all]
 #   fm-mux.sh resolve <target-or-name> [<mux>]
 #   fm-mux.sh resolve-task <fm-name-or-target>
 #   fm-mux.sh send-text <target> <text>
@@ -52,13 +62,15 @@ read_mux_config() {
 configured_mux() {
   case "$(read_mux_config)" in
     default|'') printf 'tmux' ;;
-    tmux|zellij) printf '%s' "$(read_mux_config)" ;;
+    tmux|zellij|herdr) printf '%s' "$(read_mux_config)" ;;
     *) die "unknown multiplexer in config/multiplexer: $(read_mux_config)" ;;
   esac
 }
 
 current_mux() {
-  if [ -n "${ZELLIJ:-}" ]; then
+  if [ -n "${HERDR_ENV:-}" ]; then
+    printf 'herdr'
+  elif [ -n "${ZELLIJ:-}" ]; then
     printf 'zellij'
   elif [ -n "${TMUX:-}" ]; then
     printf 'tmux'
@@ -143,6 +155,11 @@ cmd_ensure_session() {
   case "$mux" in
     tmux) ensure_tmux_session >/dev/null ;;
     zellij) ensure_zellij_session >/dev/null ;;
+    herdr)
+      command -v herdr >/dev/null || die "herdr not installed"
+      [ -n "${HERDR_ENV:-}" ] || die "herdr selected in config/multiplexer but HERDR_ENV is not set; launch firstmate inside herdr"
+      herdr pane current --current >/dev/null
+      ;;
     *) die "unknown mux for ensure-session: $mux" ;;
   esac
 }
@@ -171,9 +188,58 @@ zellij_target_for_tab() {
   printf 'zellij:%s:%s:%s' "$ses" "$tab_id" "$pane"
 }
 
+json_get() {
+  local expr=$1
+  node -e 'const fs=require("fs"); const data=JSON.parse(fs.readFileSync(0,"utf8")); const fn=new Function("data", "return " + process.argv[1]); const v=fn(data); if (v !== undefined && v !== null) console.log(String(v));' "$expr"
+}
+
+herdr_current_workspace() {
+  herdr pane current --current | json_get 'data.result.pane.workspace_id'
+}
+
+herdr_tab_id_by_name() {
+  local ws=$1 name=$2
+  herdr tab list --workspace "$ws" | HERDR_TAB_NAME=$name json_get '(data.result.tabs || []).find(t => t.label === process.env.HERDR_TAB_NAME)?.tab_id'
+}
+
+herdr_root_pane_for_tab() {
+  local ws=$1 tab=$2
+  herdr pane list --workspace "$ws" | HERDR_TAB_ID=$tab json_get '(data.result.panes || []).find(p => p.tab_id === process.env.HERDR_TAB_ID)?.pane_id'
+}
+
+herdr_parse_target() {
+  local rest=${1#herdr:} right tab pane
+  HMUX_WS=${rest%%/*}
+  right=${rest#*/}
+  case "$right" in
+    fm-*)
+      tab=$(herdr_tab_id_by_name "$HMUX_WS" "$right") || true
+      [ -n "$tab" ] || return 1
+      pane=$(herdr_root_pane_for_tab "$HMUX_WS" "$tab") || true
+      [ -n "$pane" ] || return 1
+      HMUX_TAB=$tab
+      HMUX_PANE=$pane
+      ;;
+    *)
+      # raw form: herdr:<ws>/<tab_id>/<pane_id>; HMUX_WS is already split off above.
+      HMUX_TAB=${right%%/*}
+      HMUX_PANE=${right#*/}
+      ;;
+  esac
+}
+
+herdr_target_for_tab() {
+  local ws=$1 tab_name=$2 tab pane
+  tab=$(herdr_tab_id_by_name "$ws" "$tab_name") || true
+  [ -n "$tab" ] || return 1
+  pane=$(herdr_root_pane_for_tab "$ws" "$tab") || true
+  [ -n "$pane" ] || return 1
+  printf 'herdr:%s/%s' "$ws" "$tab_name"
+}
+
 parse_target() {
   case "$1" in
-    tmux:*|zellij:*) printf '%s' "$1" ;;
+    tmux:*|zellij:*|herdr:*) printf '%s' "$1" ;;
     *) return 1 ;;
   esac
 }
@@ -192,7 +258,7 @@ zellij_parse_target() {
 }
 
 cmd_create() {
-  local mux=$1 id=$2 cwd=$3 ses name target before pane tab_id p
+  local mux=$1 id=$2 cwd=$3 ses name target before pane tab_id p ws
   name="fm-$id"
   case "$mux" in
     tmux)
@@ -229,6 +295,18 @@ cmd_create() {
       [ -n "$tab_id" ] || die "could not resolve tab id for $ses:$name after create"
       target="zellij:$ses:$tab_id:$pane"
       ;;
+    herdr)
+      command -v herdr >/dev/null || die "herdr not installed"
+      [ -n "${HERDR_ENV:-}" ] || die "herdr selected in config/multiplexer but HERDR_ENV is not set"
+      ws=$(herdr_current_workspace)
+      [ -n "$ws" ] || die "could not resolve current herdr workspace"
+      if [ -n "$(herdr_tab_id_by_name "$ws" "$name" || true)" ]; then
+        die "tab $ws:$name already exists"
+      fi
+      herdr tab create --workspace "$ws" --cwd "$cwd" --label "$name" --no-focus >/dev/null
+      target=$(herdr_target_for_tab "$ws" "$name") || true
+      [ -n "$target" ] || die "could not create herdr tab for $name"
+      ;;
     *) die "unknown mux for create: $mux" ;;
   esac
   printf '%s' "$target"
@@ -264,18 +342,37 @@ list_zellij_targets() {
   done < <(list_zellij_sessions_to_scan | awk '!seen[$0]++')
 }
 
+list_herdr_targets() {
+  local ws name target
+  command -v herdr >/dev/null || return 0
+  [ -n "${HERDR_ENV:-}" ] || return 0
+  herdr workspace list 2>/dev/null | json_get '(data.result.workspaces || []).map(w => w.workspace_id).join("\n")' \
+    | while IFS= read -r ws; do
+      [ -n "$ws" ] || continue
+      herdr tab list --workspace "$ws" 2>/dev/null \
+        | json_get '(data.result.tabs || []).filter(t => /^fm-/.test(t.label || "")).map(t => t.label).join("\n")' \
+        | while IFS= read -r name; do
+          [ -n "$name" ] || continue
+          target=$(herdr_target_for_tab "$ws" "$name" 2>/dev/null || true)
+          [ -n "$target" ] && printf '%s\n' "$target"
+        done
+    done
+}
+
 cmd_list() {
   local scope=${1:-all}
   case "$scope" in
     tmux) list_tmux_targets ;;
     zellij) list_zellij_targets ;;
+    herdr) list_herdr_targets ;;
     all)
       {
         list_tmux_targets
         list_zellij_targets
+        list_herdr_targets
       } | awk '!seen[$0]++'
       ;;
-    *) die "unknown list scope: $scope (expected tmux|zellij|all)" ;;
+    *) die "unknown list scope: $scope (expected tmux|zellij|herdr|all)" ;;
   esac
 }
 
@@ -299,6 +396,19 @@ resolve_zellij_name() {
   die "no zellij tab named $name"
 }
 
+resolve_herdr_name() {
+  local name=$1 ws target
+  while IFS= read -r ws; do
+    [ -n "$ws" ] || continue
+    target=$(herdr_target_for_tab "$ws" "$name" 2>/dev/null || true)
+    if [ -n "$target" ]; then
+      printf '%s' "$target"
+      return 0
+    fi
+  done < <(herdr workspace list 2>/dev/null | json_get '(data.result.workspaces || []).map(w => w.workspace_id).join("\n")')
+  die "no herdr tab named $name"
+}
+
 cmd_resolve() {
   local arg=${1:-} mux=${2:-}
   [ -n "$arg" ] || die "resolve requires a target or name"
@@ -319,10 +429,15 @@ cmd_resolve() {
         printf '%s' "$target"
         return 0
       fi
+      if target=$(resolve_herdr_name "$arg" 2>/dev/null); then
+        printf '%s' "$target"
+        return 0
+      fi
       die "no task surface named $arg"
       ;;
     tmux) resolve_tmux_name "$arg" ;;
     zellij) resolve_zellij_name "$arg" ;;
+    herdr) resolve_herdr_name "$arg" ;;
     *) die "unknown mux for resolve: $mux" ;;
   esac
 }
@@ -400,6 +515,16 @@ map_key_for_zellij() {
   esac
 }
 
+send_herdr_key() {
+  local pane=$1 key=$2
+  case "$key" in
+    Escape|Esc) herdr pane send-keys "$pane" Esc >/dev/null ;;
+    Enter) herdr pane send-keys "$pane" Enter >/dev/null ;;
+    C-c) herdr pane send-keys "$pane" Ctrl c >/dev/null ;;
+    *) herdr pane send-keys "$pane" "$key" >/dev/null ;;
+  esac
+}
+
 cmd_send_text() {
   local target=$1
   shift
@@ -413,6 +538,10 @@ cmd_send_text() {
     zellij:*)
       zellij_parse_target "$target"
       zellij --session "$ZMUX_SES" action write-chars -p "$ZMUX_PANE" "$text"
+      ;;
+    herdr:*)
+      herdr_parse_target "$target"
+      herdr pane send-text "$HMUX_PANE" "$text" >/dev/null
       ;;
     *) die "invalid target for send-text: $target" ;;
   esac
@@ -430,6 +559,10 @@ cmd_send_key() {
       zellij_parse_target "$target"
       zkey=$(map_key_for_zellij "$key")
       zellij --session "$ZMUX_SES" action send-keys -p "$ZMUX_PANE" "$zkey"
+      ;;
+    herdr:*)
+      herdr_parse_target "$target"
+      send_herdr_key "$HMUX_PANE" "$key"
       ;;
     *) die "invalid target for send-key: $target" ;;
   esac
@@ -451,6 +584,11 @@ cmd_capture() {
       out=$(zellij --session "$ZMUX_SES" action dump-screen -p "$ZMUX_PANE" 2>/dev/null) || return 1
       printf '%s\n' "$out" | tail -n "$lines"
       ;;
+    herdr:*)
+      herdr_parse_target "$target"
+      herdr pane get "$HMUX_PANE" >/dev/null || return 1
+      herdr pane read "$HMUX_PANE" --source recent-unwrapped --lines "$lines" --format text 2>/dev/null
+      ;;
     *) die "invalid target for capture: $target" ;;
   esac
 }
@@ -465,6 +603,11 @@ cmd_kill() {
     zellij:*)
       zellij_parse_target "$target"
       zellij --session "$ZMUX_SES" action close-tab-by-id "$ZMUX_TAB" 2>/dev/null || true
+      ;;
+    herdr:*)
+      if herdr_parse_target "$target"; then
+        herdr tab close "$HMUX_TAB" >/dev/null 2>&1 || true
+      fi
       ;;
     *) die "invalid target for kill: $target" ;;
   esac

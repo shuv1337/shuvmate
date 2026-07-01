@@ -17,7 +17,7 @@
 #   check: <script>: <out> per-task check output, always actionable
 #   heartbeat              fleet-scan backstop found an unsurfaced captain-relevant
 #                          status, unless afk is active
-# Task surfaces (tmux windows or zellij tabs) are captured through bin/fm-mux.sh
+# Task surfaces (tmux windows, zellij tabs, or herdr tabs) are captured through bin/fm-mux.sh
 # using each task's authoritative state/<id>.meta target= line.
 # For normal supervision, re-arm after each printed reason by running
 # bin/fm-watch-arm.sh through the harness's tracked background mechanism. Direct
@@ -372,12 +372,12 @@ EOF
   # remembers the hash already classified).
   #
   # Each task is iterated from its state/<id>.meta. The pane is captured through
-  # fm-mux.sh using the authoritative target= line (a tmux:ses:name or
-  # zellij:ses:tab:pane backend target captured by fm-spawn via a before/after
-  # pane diff), while the stale-state files and triage helpers key off the
-  # window= value (session:fm-id) so window_to_task/stale_is_terminal resolve the
-  # task id correctly on both backends. capture returns non-zero for a torn-down
-  # or dead target, so the || continue still skips those.
+  # fm-mux.sh using the authoritative target= line (a backend-specific pane
+  # target captured by fm-spawn), while the stale-state files and triage helpers
+  # key off the window= value (session:fm-id or fm-id) so
+  # window_to_task/stale_is_terminal resolve the task id correctly on every
+  # backend. capture returns non-zero for a torn-down or dead target, so the ||
+  # continue still skips those.
   for meta in "$STATE"/*.meta; do
     [ -e "$meta" ] || continue
     w=$(grep '^window=' "$meta" | cut -d= -f2- || true)

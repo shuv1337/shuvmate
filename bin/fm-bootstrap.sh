@@ -33,13 +33,13 @@
 #          Fleet sync fetches, fast-forwards safe default-branch states, reports
 #          recovered and STUCK clone drift, and prunes gone local branches; it is
 #          bounded by FM_FLEET_SYNC_BOOTSTRAP_TIMEOUT, default 20s.
-#          The configured multiplexer (config/multiplexer: tmux default, or
-#          zellij) is the one checked for installation and reported via
+#          The configured multiplexer (config/multiplexer: tmux default, zellij,
+#          or herdr) is the one checked for installation and reported via
 #          MULTIPLEXER_OVERRIDE when non-default.
 #          Set FM_FLEET_PRUNE=0 to skip branch pruning during that refresh.
 #        fm-bootstrap.sh install <tool>...
 #          Install the named tools (only ones the captain approved).
-#        config/multiplexer selects tmux (default), zellij, or default.
+#        config/multiplexer selects tmux (default), zellij, herdr, or default.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -136,6 +136,7 @@ secondmate_sync() {
 install_cmd() {
   case "$1" in
     tmux|node|gh|zellij|curl|jq) echo "brew install $1  # or the platform's package manager" ;;
+    herdr) echo "curl -fsSL https://herdr.dev/install.sh | sh" ;;
     treehouse) echo "curl -fsSL https://kunchenguid.github.io/treehouse/install.sh | sh" ;;
     no-mistakes) echo "curl -fsSL https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.sh | sh" ;;
     gh-axi|chrome-devtools-axi|lavish-axi) echo "npm install -g $1 && $1 setup hooks" ;;
@@ -151,7 +152,7 @@ required_mux() {
   fi
   case "$mux" in
     default|'') printf 'tmux' ;;
-    tmux|zellij) printf '%s' "$mux" ;;
+    tmux|zellij|herdr) printf '%s' "$mux" ;;
     *) printf 'unknown:%s' "$mux" ;;
   esac
 }
@@ -302,7 +303,7 @@ fi
 MUX=$(required_mux)
 case "$MUX" in
   unknown:*)
-    echo "MISSING: multiplexer config (unknown value in config/multiplexer: ${MUX#unknown:}; use tmux, zellij, or default)"
+    echo "MISSING: multiplexer config (unknown value in config/multiplexer: ${MUX#unknown:}; use tmux, zellij, herdr, or default)"
     ;;
   *)
     command -v "$MUX" >/dev/null || echo "MISSING: $MUX (install: $(install_cmd "$MUX"))"

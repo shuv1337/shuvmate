@@ -8,8 +8,9 @@
 # or blocked and the crew resumes (responds to the gate, the pipeline fixes, it
 # re-validates), the log's last line stays stale. This helper never infers the
 # current state from a tail of the log: it reads the authoritative source (a
-# no-mistakes run-step attributed to this crew's branch, else the pane
-# busy-signature) and reconciles the possibly-stale log against it.
+# no-mistakes run-step attributed to this crew's branch, else backend liveness
+# such as tmux busy-signature or Herdr agent status) and reconciles the
+# possibly-stale log against it.
 #
 # The determinism lives entirely here - only run-step / pane / log reads plus
 # fixed mapping logic, no heuristics and no LLM. Output is one stable, parseable,
@@ -18,7 +19,7 @@
 #   state: <working|parked|done|blocked|failed|unknown> · source: <run-step|pane|status-log|none> · <detail>
 #
 # Logic, in order:
-#   1. Resolve worktree + window + kind from state/<id>.meta.
+#   1. Resolve worktree + window/target + kind from state/<id>.meta.
 #   2. Matching no-mistakes run for this crew's branch, active or terminal?
 #      The run-step is AUTHORITATIVE: running/fixing -> working, ci -> working,
 #      awaiting_approval/fix_review -> parked (with gate findings), terminal
@@ -27,8 +28,9 @@
 #      the run-step shows the run moved on, the log is deterministically stale and
 #      is flagged superseded. A genuinely parked run plus a needs-decision log
 #      agree, and are reported as parked.
-#   4. No run for this crew (pre-validation, or kind=scout): fall back to the
-#      pane busy-signature (fm-tmux-lib.sh) + the status log's last line.
+#   4. No run for this crew (pre-validation, or kind=scout): fall back to backend
+#      liveness signals (tmux busy-signature or Herdr agent status) + the status
+#      log's last line.
 #   5. Missing meta or torn-down worktree: report unknown · none. If no run is
 #      attributed to this crew, a dead window also reports unknown · none rather
 #      than trusting a stale status log.
@@ -41,6 +43,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
+MUX="$SCRIPT_DIR/fm-mux.sh"
 
 # shellcheck source=bin/fm-tmux-lib.sh
 . "$SCRIPT_DIR/fm-tmux-lib.sh"
@@ -72,8 +75,10 @@ meta_value() {  # <key>
 
 WT=$(meta_value worktree)
 WIN=$(meta_value window)
+TARGET=$(meta_value target)
 KIND=$(meta_value kind)
 [ -n "$KIND" ] || KIND=ship
+[ -n "$TARGET" ] || TARGET="tmux:$WIN"
 
 # A torn-down (or never-created) worktree has no current state to read.
 if [ -z "$WT" ] || [ ! -d "$WT" ]; then
@@ -118,8 +123,60 @@ LOG_VERB=$(log_verb_of "$LOG_LINE")
 # stays authoritative regardless of pane liveness - judge by the run-step, not the
 # shell - so a finished crew whose window has closed still reports its run-step
 # state (e.g. done) instead of being masked as unknown.
-pane_readable() {  # <target>
-  tmux display-message -p -t "$1" '#{pane_id}' >/dev/null 2>&1
+pane_readable() {  # <backend-target>
+  case "$1" in
+    tmux:*) tmux display-message -p -t "${1#tmux:}" '#{pane_id}' >/dev/null 2>&1 ;;
+    *) "$MUX" capture "$1" 1 >/dev/null 2>&1 ;;
+  esac
+}
+
+pane_busy() {  # <backend-target>
+  case "$1" in
+    tmux:*) fm_pane_is_busy "${1#tmux:}" ;;
+    *) return 1 ;;
+  esac
+}
+
+herdr_json_get() {
+  local expr=$1
+  node -e 'const fs=require("fs"); const data=JSON.parse(fs.readFileSync(0,"utf8")); const fn=new Function("data", "return " + process.argv[1]); const v=fn(data); if (v !== undefined && v !== null) process.stdout.write(String(v));' "$expr"
+}
+
+herdr_tab_id_by_name() {
+  local ws=$1 name=$2
+  herdr tab list --workspace "$ws" 2>/dev/null \
+    | HERDR_TAB_NAME=$name herdr_json_get '(data.result.tabs || []).find(t => t.label === process.env.HERDR_TAB_NAME)?.tab_id' 2>/dev/null
+}
+
+herdr_root_pane_for_tab() {
+  local ws=$1 tab=$2
+  herdr pane list --workspace "$ws" 2>/dev/null \
+    | HERDR_TAB_ID=$tab herdr_json_get '(data.result.panes || []).find(p => p.tab_id === process.env.HERDR_TAB_ID)?.pane_id' 2>/dev/null
+}
+
+herdr_pane_id_from_target() {
+  local rest=${1#herdr:} ws right tab pane
+  ws=${rest%%/*}
+  right=${rest#*/}
+  case "$right" in
+    fm-*)
+      tab=$(herdr_tab_id_by_name "$ws" "$right") || true
+      [ -n "$tab" ] || return 1
+      pane=$(herdr_root_pane_for_tab "$ws" "$tab") || true
+      [ -n "$pane" ] || return 1
+      printf '%s' "$pane"
+      ;;
+    *)
+      printf '%s' "$right"
+      ;;
+  esac
+}
+
+herdr_agent_status() {  # <herdr-target>
+  local pane
+  pane=$(herdr_pane_id_from_target "$1") || return 0
+  herdr pane get "$pane" 2>/dev/null \
+    | herdr_json_get 'data.result?.pane?.agent_status || data.result?.agent?.status || ""' 2>/dev/null
 }
 
 # --- no-mistakes run lookup (authoritative when a run matches this branch) --
@@ -349,11 +406,23 @@ fi
 # is no run to consult, so a dead/unreadable window means the crew is gone: report
 # unknown rather than trusting a possibly-stale status log as the current state.
 [ -n "$WIN" ] || emit unknown none "no window recorded"
-pane_readable "$WIN" || emit unknown none "window gone: $WIN"
+pane_readable "$TARGET" || emit unknown none "window gone: ${TARGET:-$WIN}"
+
+if [ "$KIND" != secondmate ]; then
+  case "$TARGET" in
+    herdr:*)
+      case "$(herdr_agent_status "$TARGET")" in
+        working) emit working pane "herdr agent working" ;;
+        blocked) emit blocked pane "herdr agent blocked" ;;
+        done) emit done pane "herdr agent done" ;;
+      esac
+      ;;
+  esac
+fi
 
 # Secondmates idle on their own watcher (idle pane = healthy), so the busy
 # signature is not meaningful for them; read their state from the status log only.
-if [ "$KIND" != secondmate ] && fm_pane_is_busy "$WIN"; then
+if [ "$KIND" != secondmate ] && pane_busy "$TARGET"; then
   emit working pane "harness busy"
 fi
 

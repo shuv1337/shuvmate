@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tear down a finished task: return the treehouse worktree or retire a
-# secondmate home, kill the task surface (tmux window or zellij tab via
+# secondmate home, kill the task surface (tmux window, zellij tab, or herdr tab via
 # fm-mux.sh), clear volatile state, refresh/prune the project's clone for
 # PR-based ship tasks, then print a backlog-refresh reminder.
 # REFUSES if the worktree holds work that has not LANDED, because treehouse return

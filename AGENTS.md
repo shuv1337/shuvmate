@@ -72,7 +72,7 @@ README.md            public overview and development notes
 bin/                 helper scripts, committed; read each script's header before first use
 .env                 optional X-mode pairing token; LOCAL, gitignored; presence-gates section 14
 config/crew-harness  crewmate harness override; LOCAL, gitignored; absent or "default" = same as firstmate
-config/multiplexer   crewmate multiplexer override; LOCAL, gitignored; absent or "default" = tmux
+config/multiplexer   crewmate multiplexer override; LOCAL, gitignored; absent or "default" = tmux; can be tmux, zellij, or herdr
 config/x-mode.env    generated X-mode watcher cadence; LOCAL, gitignored; source before arming watcher when present
 data/                personal fleet records; LOCAL, gitignored as a whole
   backlog.md         task queue, dependencies, history
@@ -102,7 +102,7 @@ state/               volatile runtime signals; gitignored
 ```
 
 Task ids are short kebab slugs with a random suffix, e.g. `fix-login-k3`.
-The task surface for a task is always named `fm-<id>` (tmux window or zellij tab).
+The task surface for a task is always named `fm-<id>` (tmux window, zellij tab, or Herdr tab).
 
 ## 3. Bootstrap (run at every session start)
 
@@ -149,7 +149,7 @@ Do not dispatch any work until the tools that work needs are present and GitHub 
 Use `gh-axi` for all GitHub operations, `chrome-devtools-axi` for all browser operations, and `lavish-axi` when a decision or report is complex enough to deserve a rich review surface.
 Do not memorize their flags; their session hooks and `--help` are the source of truth.
 If the captain names a different crewmate harness at bootstrap or later, write it to `config/crew-harness` (local, gitignored); that is the whole switch.
-If the captain prefers zellij over tmux, write `zellij` to `config/multiplexer` (local, gitignored); absent or `default` keeps tmux.
+If the captain prefers zellij or Herdr over tmux, write `zellij` or `herdr` to `config/multiplexer` (local, gitignored); absent or `default` keeps tmux. Herdr mode requires firstmate itself to be running inside Herdr (`HERDR_ENV=1`).
 
 ## 4. Harness adapters
 
@@ -175,7 +175,7 @@ Reconcile reality with your records before doing anything else:
 2. Drain queued wakes with `bin/fm-wake-drain.sh` and keep the printed records as the first work queue for this recovery turn.
 3. Read `data/backlog.md`, `data/secondmates.md` if present, every `state/*.meta`, and every `state/*.status`.
    Treat status files as wake-event history; when you need a live current-state read for a recorded direct report, use `bin/fm-crew-state.sh <id>` instead of inferring from the last status line.
-4. Use the `target=`/`window=` values from this home's `state/*.meta` files as the live direct-report set, then check those panes in their recorded multiplexer (`mux=`; missing `mux=` means legacy tmux). `bin/fm-mux.sh list all` enumerates live crewmates across tmux and zellij.
+4. Use the `target=`/`window=` values from this home's `state/*.meta` files as the live direct-report set, then check those panes in their recorded multiplexer (`mux=`; missing `mux=` means legacy tmux). `bin/fm-mux.sh list all` enumerates live crewmates across tmux, zellij, and Herdr.
    Do not sweep every `fm-*` window across all sessions during recovery; another firstmate home's child panes may share that namespace and are not this home's orphans.
 5. If a recorded direct-report window is missing, reconcile it through its meta as described below.
 6. For meta with no window, reconcile by kind.
