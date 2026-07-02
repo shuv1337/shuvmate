@@ -38,7 +38,7 @@ function esc(s) {
 }
 function linkify(s,   out, url) {
   out = ""
-  while (match(s, /https?:\/\/[^[:space:]<>)]+/)) {
+  while (match(s, /https?:\/\/[^[:space:]<>)"\047]+/)) {
     url = substr(s, RSTART, RLENGTH)
     out = out substr(s, 1, RSTART - 1) "<a href=\"" url "\">" url "</a>"
     s = substr(s, RSTART + RLENGTH)

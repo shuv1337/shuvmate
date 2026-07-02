@@ -41,6 +41,7 @@ Open decisions, blockers, credentials, review or merge approvals, and any other 
 - [ ] 2026-07-02 | task-a1 | decision | Choose <plan A> & plan B | source: status:task-a1.status <!-- fm-ask:task-a1:decision:1 -->
 - [ ] 2026-07-02 | task-b2 | blocker | Need GitHub login <!-- fm-ask:task-b2:blocker:2 -->
 - [ ] 2026-07-01 | task-c3 | merge | Review and merge PR https://github.com/example/repo/pull/12 | source: fm-pr-check <!-- fm-ask:task-c3:merge:3 -->
+- [ ] 2026-07-01 | task-xss | merge | Suspicious URL https://evil.test/" onclick="alert(1) and https://evil.test/'onmouseover='alert(2) | source: status:task-xss.status <!-- fm-ask:task-xss:merge:4 -->
 - a free-form hand-written note
 
 ## Resolved
@@ -76,6 +77,10 @@ test_renders_asks_and_backlog_with_escaping() {
   assert_grep 'Choose &lt;plan A&gt; &amp; plan B' "$out" "summary was not HTML-escaped"
   assert_no_grep '<plan A>' "$out" "raw markup leaked into the HTML"
   assert_grep '<a href="https://github.com/example/repo/pull/12">' "$out" "PR URL was not linkified"
+  assert_grep '<a href="https://evil.test/">https://evil.test/</a>" onclick="alert(1)' "$out" "quoted URL prefix was not safely linkified"
+  assert_grep '<a href="https://evil.test/">https://evil.test/</a>'"'"'onmouseover='"'"'alert(2)' "$out" "single-quoted URL prefix was not safely linkified"
+  assert_no_grep '<a href="https://evil.test/" onclick=' "$out" "double quote broke out of href attribute"
+  assert_no_grep '<a href="https://evil.test/'"'"'onmouseover=' "$out" "single quote stayed inside href attribute"
   assert_grep 'a free-form hand-written note' "$out" "free-form open bullet was dropped"
   assert_grep 'resolved 2026-07-01: postgres (captain: managed)' "$out" "resolved note missing"
 
@@ -83,7 +88,7 @@ test_renders_asks_and_backlog_with_escaping() {
   assert_grep '<span class="task-id">task-bold</span>' "$out" "bold-form in-flight id was not parsed"
   assert_grep 'task task-blocked' "$out" "blocked queued item was not flagged"
   assert_grep 'repo: alpha, since 2026-07-02' "$out" "task metadata missing"
-  assert_grep '4 open ask(s)' "$out" "open-ask count chip wrong"
+  assert_grep '5 open ask(s)' "$out" "open-ask count chip wrong"
   assert_grep '2 in flight' "$out" "in-flight count chip wrong"
   pass "renderer escapes, linkifies, and groups asks and backlog"
 }
