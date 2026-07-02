@@ -29,6 +29,7 @@
 #   not word-split unquoted $vars and silently breaks ad-hoc `for ... in $pairs` loops).
 #   Launch templates live in launch_template() below; placeholders replaced before launch:
 #     __BRIEF__    absolute path to data/<task-id>/brief.md
+#     __MODEL__    resolved claude model token (fm-harness.sh crew-model; claude only)
 #     __TURNEND__  absolute path to state/<task-id>.turn-ended (for harnesses whose
 #                  turn-end signal rides the launch command, e.g. codex -c notify=[...])
 #     __PIEXT__    absolute path to state/<task-id>.pi-ext.ts (pi turn-end extension,
@@ -132,7 +133,11 @@ launch_template() {
     # does NOT suppress the interactive ghost text (verified empirically), so the env
     # var is the correct control. The dim-aware composer reader in fm-tmux-lib.sh is
     # the defense-in-depth backstop for any pane this flag cannot reach.
-    claude) printf '%s' 'CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions "$(cat __BRIEF__)"' ;;
+    # --model __MODEL__ pins all firstmate-launched claude agents (fm-harness.sh
+    # crew-model, default "opus") so they do not fall through to the CLI's own
+    # default tier (Fable, the priciest). __MODEL__ is substituted below
+    # alongside __BRIEF__.
+    claude) printf '%s' 'CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --model __MODEL__ --dangerously-skip-permissions "$(cat __BRIEF__)"' ;;
     codex)
       if [ "$kind" = secondmate ]; then
         printf '%s' 'codex --dangerously-bypass-approvals-and-sandbox "$(cat __BRIEF__)"'
@@ -564,6 +569,12 @@ mkdir -p "$STATE"
 sq_brief=$(shell_quote "$BRIEF")
 sq_turnend=$(shell_quote "$TURNEND")
 sq_piext=$(shell_quote "$STATE/$ID.pi-ext.ts")
+# Resolve the claude model only for the shared claude template's __MODEL__ placeholder;
+# other adapters carry their own model mechanisms and have no __MODEL__ token,
+# so this substitution is inert for them. A per-spawn FM_CREW_MODEL in the
+# environment overrides config/crew-model (e.g. "run this one on sonnet").
+sq_model=$(shell_quote "$("$FM_ROOT/bin/fm-harness.sh" crew-model)")
+LAUNCH=${LAUNCH//__MODEL__/$sq_model}
 LAUNCH=${LAUNCH//__BRIEF__/$sq_brief}
 LAUNCH=${LAUNCH//__TURNEND__/$sq_turnend}
 LAUNCH=${LAUNCH//__PIEXT__/$sq_piext}

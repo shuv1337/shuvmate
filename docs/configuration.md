@@ -75,6 +75,21 @@ That lets a Claude secondmate dispatch Codex crewmates from its own home.
 Existing secondmate homes keep their own `config/crew-harness`.
 Secondmate respawn preserves the recorded supervisor `harness=` from `state/<id>.meta` when present.
 
+## Claude model selection (config/crew-model / FM_CREW_MODEL)
+
+Claude-launched ship/scout crewmates and persistent secondmate supervisors are pinned with `--model` instead of inheriting the Claude CLI's own default.
+The model token resolves from `FM_CREW_MODEL`, then the active firstmate home's gitignored `config/crew-model`, then the `opus` baseline.
+A blank file, missing file, or `default` also resolves to `opus`.
+Use `config/crew-model` for the standing local policy:
+
+```sh
+mkdir -p config
+printf 'sonnet\n' > config/crew-model
+```
+
+Use `FM_CREW_MODEL` for one spawn only, for example `FM_CREW_MODEL=haiku bin/fm-spawn.sh ...`.
+This model override is scoped to firstmate's Claude launch template; codex, opencode, and pi keep their own model mechanisms.
+
 ## Multiplexer backend (config/multiplexer)
 
 firstmate runs each crewmate in a multiplexer surface; tmux is the default backend.
@@ -155,6 +170,7 @@ FM_STATE_OVERRIDE=       # alternate state dir, mainly for tests
 FM_DATA_OVERRIDE=        # alternate data dir, mainly for tests
 FM_PROJECTS_OVERRIDE=    # alternate projects dir, mainly for tests
 FM_CONFIG_OVERRIDE=      # alternate config dir, mainly for tests
+FM_CREW_MODEL=           # per-spawn Claude model override; beats config/crew-model; absent/default resolves to opus
 FM_POLL=15              # seconds between watcher poll cycles
 FM_HEARTBEAT=600        # base seconds between heartbeat scans; no-change heartbeats are absorbed while idle
 FM_HEARTBEAT_MAX=7200   # heartbeat backoff cap

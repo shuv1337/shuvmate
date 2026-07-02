@@ -5,6 +5,9 @@
 #                                   (config/crew-harness; "default" resolves to own)
 #        fm-harness.sh secondmate   print the effective secondmate supervisor harness
 #                                   (config/secondmate-harness; "default" resolves to own)
+#        fm-harness.sh crew-model   print the effective claude model token
+#                                   (FM_CREW_MODEL env, else config/crew-model;
+#                                   absent or "default" resolves to "opus")
 # Detection layers: verified environment markers first, then process ancestry.
 # Record each newly verified env marker here.
 set -u
@@ -55,12 +58,29 @@ resolve_configured_harness() {
   fi
 }
 
+# Resolve the effective model token for a firstmate-launched claude agent.
+# FM_CREW_MODEL (per-spawn override) wins over config/crew-model; absent or
+# "default" resolves to the sensible baseline "opus" (capable for real coding,
+# review, and supervision work, far cheaper than the claude CLI's own Fable default).
+resolve_crew_model() {
+  local configured="${FM_CREW_MODEL:-}"
+  if [ -z "$configured" ] && [ -f "$CONFIG/crew-model" ]; then
+    configured=$(tr -d '[:space:]' < "$CONFIG/crew-model" || true)
+  fi
+  if [ -z "$configured" ] || [ "$configured" = "default" ]; then
+    echo opus
+  else
+    echo "$configured"
+  fi
+}
+
 case "${1:-}" in
   ''|own) detect_own ;;
   crew) resolve_configured_harness crew-harness ;;
   secondmate) resolve_configured_harness secondmate-harness ;;
+  crew-model) resolve_crew_model ;;
   *)
-    echo "usage: fm-harness.sh [own|crew|secondmate]" >&2
+    echo "usage: fm-harness.sh [own|crew|secondmate|crew-model]" >&2
     exit 2
     ;;
 esac

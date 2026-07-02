@@ -84,6 +84,7 @@ Run it inside tmux, zellij, or Herdr for the best experience: launching your har
 Outside a multiplexer, tmux crewmates land in a detached `firstmate` session you can attach to.
 tmux is the default; set `config/multiplexer` to `zellij` or `herdr` to use that backend for new crewmate sessions (absent or `default` keeps tmux). Herdr mode expects firstmate itself to be running inside Herdr.
 Harness choice is separate from the harness running firstmate: set `config/crew-harness` for worker agents and `config/secondmate-harness` for persistent secondmate supervisors.
+For Claude-launched crew, `config/crew-model` selects the standing model token, with `opus` as the default and `FM_CREW_MODEL` available for a one-spawn override.
 
 ## How It Works
 
