@@ -8,6 +8,8 @@
 #   fm-captain-asks.sh add <task-id> <type> <summary> [--source <text>]
 #   fm-captain-asks.sh resolve <task-id> [type] [--note <text>]
 #   fm-captain-asks.sh sync-from-state
+# Every mutating verb also regenerates the HTML operator view via
+# fm-asks-html.sh, best-effort: a render failure never fails the mutation.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,6 +23,12 @@ ASKS="$DATA/captain-asks.md"
 . "$SCRIPT_DIR/fm-classify-lib.sh"
 
 today() { date +%Y-%m-%d; }
+
+# Best-effort HTML view refresh after a mutation; never fails the verb and
+# never adds to its stdout, so the CLI contract stays byte-identical.
+render_view() {
+  "$SCRIPT_DIR/fm-asks-html.sh" >/dev/null 2>&1 || true
+}
 
 sanitize_key_part() {
   printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_'
@@ -199,9 +207,9 @@ cmd_sync_from_state() {
 case "${1:-}" in
   path) ensure_file; printf '%s\n' "$ASKS" ;;
   list|"") ensure_file; cat "$ASKS" ;;
-  add) shift; cmd_add "$@" ;;
-  resolve) shift; cmd_resolve "$@" ;;
-  sync-from-state) cmd_sync_from_state ;;
+  add) shift; cmd_add "$@"; render_view ;;
+  resolve) shift; cmd_resolve "$@"; render_view ;;
+  sync-from-state) cmd_sync_from_state; render_view ;;
   *)
     echo "usage: fm-captain-asks.sh path|list|add|resolve|sync-from-state" >&2
     exit 1
