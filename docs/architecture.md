@@ -52,6 +52,12 @@ Ship briefs also tell the crewmate to verify `pwd -P` and `git rev-parse --show-
 
 Ship tasks change projects and ship by project mode (`no-mistakes`, `direct-PR`, or `local-only`); scout tasks investigate, plan, reproduce bugs, or audit, then leave a report at `data/<id>/report.md` and never push.
 
+## Operator ask view
+
+Captain-owned decisions, blockers, credentials, failures, and review or merge approvals are tracked in `data/captain-asks.md` as the durable markdown ledger.
+Every `fm-captain-asks.sh` mutation (`add`, `resolve`, or `sync-from-state`) also regenerates `state/captain-view.html` best-effort, giving the captain a self-contained browser view with open asks above the backlog and resolved asks below.
+Because backlog changes are still ordinary markdown edits, `bin/fm-asks-html.sh` can be run directly after editing `data/backlog.md`; `bin/fm-asks-html.sh path` prints the generated artifact path without rendering.
+
 ## Optional secondmates
 
 `data/secondmates.md` records persistent domain supervisors with natural-language scopes, project clone lists, and home paths.
