@@ -135,7 +135,7 @@ phase_spawn() {
   assert_grep 'FM_ROOT_OVERRIDE= FM_STATE_OVERRIDE= FM_DATA_OVERRIDE= FM_PROJECTS_OVERRIDE=' "$LOG" "launch did not clear operational overrides"
   assert_grep 'FM_CONFIG_OVERRIDE=' "$LOG" "launch did not clear the config override"
   assert_grep "$SUB_ABS/data/charter.md" "$LOG" "launch did not use the persistent charter"
-  assert_grep 'claude --dangerously-skip-permissions' "$LOG" "secondmate launch did not use the configured supervisor harness"
+  assert_grep "claude --model 'opus' --dangerously-skip-permissions" "$LOG" "secondmate launch did not use the configured supervisor harness"
   assert_no_grep 'codex --dangerously-bypass-approvals-and-sandbox' "$LOG" "secondmate launch used the worker harness instead of the supervisor harness"
   assert_no_grep 'notify=' "$LOG" "secondmate launch included a parent turn-end notify hook"
   assert_no_grep 'turn-ended' "$LOG" "secondmate launch referenced a parent turn-ended signal"
@@ -152,7 +152,7 @@ phase_respawn_preserves_recorded_harness() {
     || fail "secondmate respawn from existing meta failed"
   local meta="$HOME_DIR/state/design.meta"
   assert_grep 'harness=claude' "$meta" "respawn did not preserve the recorded secondmate harness"
-  assert_grep 'claude --dangerously-skip-permissions' "$LOG" "respawn did not use the recorded supervisor harness"
+  assert_grep "claude --model 'opus' --dangerously-skip-permissions" "$LOG" "respawn did not use the recorded supervisor harness"
   pass "respawn: existing secondmate meta preserves the supervisor harness"
 }
 
