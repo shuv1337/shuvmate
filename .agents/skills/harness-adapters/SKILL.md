@@ -26,6 +26,7 @@ If the captain asks for a new harness, propose verifying it first: spawn a trivi
 `bin/fm-harness.sh` prints firstmate's own harness, using verified env markers first and then process ancestry.
 `bin/fm-harness.sh crew` resolves the effective worker harness from `config/crew-harness`.
 `bin/fm-harness.sh secondmate` resolves the effective persistent secondmate supervisor harness from `config/secondmate-harness`.
+`bin/fm-harness.sh crew-model` resolves the Claude model token from `FM_CREW_MODEL`, then `config/crew-model`, then the `opus` baseline.
 On `unknown`, ask the captain instead of guessing.
 A captain override always beats detection.
 When verifying a new adapter, record its env marker and command name in `bin/fm-harness.sh`.
@@ -58,7 +59,7 @@ If such a dialog is showing, accept it with `bin/fm-send.sh <window> --key Enter
 
 Claude renders a predicted-next-prompt suggestion as dim/faint text inside an otherwise-empty composer after a turn completes.
 A plain `tmux capture-pane` cannot tell that ghost text apart from typed text.
-Firstmate launches every claude crewmate and secondmate with `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false`, scoped to firstmate-launched agents through `bin/fm-spawn.sh`, so it never touches the captain's global config.
+Firstmate launches every claude crewmate and secondmate with `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false` and `--model $(bin/fm-harness.sh crew-model)`, scoped to firstmate-launched agents through `bin/fm-spawn.sh`, so it never touches the captain's global config.
 The CLI's `--prompt-suggestions` flag is print/SDK-mode only and does not suppress the interactive composer ghost text, verified empirically on v2.1.186.
 As defense in depth for any pane that flag cannot reach, including the captain's own firstmate composer that away-mode reads, the pane reader in `bin/fm-tmux-lib.sh` captures only the composer line with ANSI styling, drops dim/faint SGR 2 runs, and ignores them, so only normal-intensity typed text counts as pending input.
 That styled capture is internal to the boolean detector only.

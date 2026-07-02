@@ -15,7 +15,7 @@ Each file also starts with a short header comment.
 | `fm-guard.sh`            | Warn when the primary checkout is tangled, when queued wakes are pending, or when a stale or missing watcher needs a prominent banner |
 | `fm-home-seed.sh`        | Lease/provision a secondmate home transactionally, clone projects, initialize gates, and maintain `data/secondmates.md` |
 | `fm-mux.sh`              | Multiplexer backend helper (tmux/zellij/herdr) selected by `config/multiplexer`: create, list, send to, capture, and kill task surfaces; records `mux=` and `target=` per task |
-| `fm-spawn.sh`            | Spawn one task, several `id=repo` pairs, or a persistent secondmate with `--secondmate`; ship/scout spawns require an isolated treehouse worktree; secondmate spawns locally sync the home before launch |
+| `fm-spawn.sh`            | Spawn one task, several `id=repo` pairs, or a persistent secondmate with `--secondmate`; ship/scout spawns require an isolated treehouse worktree; Claude launches are pinned with the resolved `crew-model`; secondmate spawns locally sync the home before launch |
 | `fm-project-mode.sh`     | Resolve a project's delivery mode and `+yolo` flag from `data/projects.md`                                          |
 | `fm-merge-local.sh`      | Fast-forward a `local-only` project's local default branch after approval                                           |
 | `fm-review-diff.sh`      | Review a crewmate branch against the authoritative base, with optional `--stat` output                              |
@@ -36,7 +36,7 @@ Each file also starts with a short header comment.
 | `fm-pr-check.sh`         | Record `pr=` and a verified `pr_head=` when available for a PR-ready task, then arm the watcher's merge poll        |
 | `fm-promote.sh`          | Promote a scout task in place so it becomes a protected ship task                                                   |
 | `fm-teardown.sh`         | Return a clean, landed ship worktree or retire/release a secondmate home; requires scout reports, checks child work, and prints the backlog reminder |
-| `fm-harness.sh`          | Detect the running harness; resolve effective worker and secondmate supervisor harnesses                           |
+| `fm-harness.sh`          | Detect the running harness; resolve effective worker and secondmate supervisor harnesses, plus the Claude `crew-model` token |
 | `fm-lock.sh`             | Per-home firstmate session lock                                                                                     |
 | `fm-x-lib.sh`            | Shared X-mode `.env`, alternate env-file, relay, dry-run config, reply-thread splitting, and task-to-X-request meta-link helpers |
 | `fm-x-poll.sh`           | Do one bounded X relay poll; without `FMX_PAIRING_TOKEN` it is silent, with a pending mention it stashes the full inbox JSON, including `in_reply_to`, and prints `x-mention <request_id>` |
