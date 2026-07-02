@@ -72,6 +72,7 @@ README.md            public overview and development notes
 bin/                 helper scripts, committed; read each script's header before first use
 .env                 optional X-mode pairing token; LOCAL, gitignored; presence-gates section 14
 config/crew-harness  worker harness override for ship/scout crewmates; LOCAL, gitignored; absent or "default" = same as that firstmate home
+config/crew-model    claude crew model override for ship/scout crewmates; LOCAL, gitignored; a single model token (opus, sonnet, haiku, fable); absent or "default" = opus; a per-spawn FM_CREW_MODEL env var overrides it for one dispatch
 config/secondmate-harness  supervisor harness override for persistent secondmate panes; LOCAL, gitignored; absent or "default" = same as main firstmate
 config/multiplexer   crewmate multiplexer override; LOCAL, gitignored; absent or "default" = tmux; can be tmux, zellij, or herdr
 config/x-mode.env    generated X-mode watcher cadence; LOCAL, gitignored; source before arming watcher when present
@@ -152,6 +153,7 @@ Do not dispatch any work until the tools that work needs are present and GitHub 
 Use `gh-axi` for all GitHub operations, `chrome-devtools-axi` for all browser operations, and `lavish-axi` when a decision or report is complex enough to deserve a rich review surface.
 Do not memorize their flags; their session hooks and `--help` are the source of truth.
 If the captain names a different worker harness at bootstrap or later, write it to `config/crew-harness` (local, gitignored); that switches ship/scout crewmates and is copied into newly seeded secondmate homes as their worker default when they have no existing worker override.
+If the captain names a different claude crew model, write it to `config/crew-model` (local, gitignored): a single model token, absent or `default` meaning the `opus` baseline; that model is passed as `--model` to every claude ship/scout dispatch.
 If the captain names a different persistent secondmate supervisor harness, write it to `config/secondmate-harness` (local, gitignored); that switches `--secondmate` launches without changing worker agents.
 If the captain prefers zellij or Herdr over tmux, write `zellij` or `herdr` to `config/multiplexer` (local, gitignored); absent or `default` keeps tmux. Herdr mode requires firstmate itself to be running inside Herdr (`HERDR_ENV=1`).
 
@@ -164,6 +166,11 @@ This lets firstmate run in one harness, launch secondmate supervisors in another
 The recorded worker harness is used for every ship/scout dispatch until changed; a per-task instruction from the captain ("run this one on codex") overrides it for that dispatch only.
 Secondmate respawn preserves the existing `state/<id>.meta` `harness=` value when present, so a recovered supervisor does not silently change harness after the worker default changes.
 Resolve `default` with `bin/fm-harness.sh`; resolve the active worker harness with `bin/fm-harness.sh crew`; resolve the active secondmate supervisor harness with `bin/fm-harness.sh secondmate`.
+
+Orthogonal to harness, a claude crew launches on a resolved model rather than the claude CLI's own default (Fable, the priciest tier) for routine coding and review work.
+The effective model is `bin/fm-harness.sh crew-model`: it reads `config/crew-model`, and absent or `default` resolves to the `opus` baseline - capable for real work and far cheaper than Fable.
+`bin/fm-spawn.sh` injects that model as `--model` into the claude launch template only; codex, opencode, and pi carry their own model mechanisms and are untouched.
+For a one-off per-task override ("run this one on sonnet"), set `FM_CREW_MODEL` in the spawn's environment (`FM_CREW_MODEL=sonnet bin/fm-spawn.sh ...`); it wins over `config/crew-model` for that dispatch only.
 
 Each adapter splits into mechanics and knowledge.
 The mechanics (launch command, autonomy flag, turn-end hook) live in `bin/fm-spawn.sh`; the knowledge you need while supervising (busy signature, exit, interrupt, dialogs, quirks, skill invocation, resume) lives in the agent-only `harness-adapters` skill.
